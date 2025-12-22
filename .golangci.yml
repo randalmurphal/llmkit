@@ -1,0 +1,79 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: '1.23'
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - unconvert
+    - unparam
+    - gocritic
+    - revive
+    - errorlint
+
+  settings:
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: if-return
+        - name: increment-decrement
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unreachable-code
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - hugeParam
+
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+
+  exclusions:
+    rules:
+      # Test files can have longer functions
+      - path: _test\.go
+        linters:
+          - funlen
+      # Allow dot imports in tests
+      - path: _test\.go
+        text: "dot-imports"
+      # Examples can have unused variables
+      - path: example_test\.go
+        linters:
+          - unused
+      # Allow intentional stuttering for clarity (ModelName, ModelPricing)
+      - linters:
+          - revive
+        text: "stutters"
+
+formatters:
+  enable:
+    - gofmt
