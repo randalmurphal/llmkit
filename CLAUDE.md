@@ -10,7 +10,7 @@
 
 | Package | Purpose | Key Types |
 |---------|---------|-----------|
-| `claude/` | Claude CLI wrapper | `Client`, `ClaudeCLI`, `Credentials`, `CompletionRequest` |
+| `claude/` | Claude CLI wrapper | `Client`, `ClaudeCLI`, `Config`, `MockClient`, `CompletionRequest` |
 | `template/` | Prompt template rendering | `Engine`, `Template`, `Render` |
 | `tokens/` | Token counting and budgeting | `Counter`, `Budget`, `Estimate` |
 | `parser/` | Extract structured data from LLM responses | `ExtractJSON`, `ExtractYAML`, `ExtractCodeBlocks` |
@@ -26,11 +26,22 @@
 ```go
 import "github.com/randalmurphal/llmkit/claude"
 
-// Create client with options
-client := claude.NewCLI(
-    claude.WithModel("sonnet"),
+// Create client with options (original pattern)
+client := claude.NewClaudeCLI(
+    claude.WithModel("claude-sonnet-4-20250514"),
     claude.WithTimeout(5*time.Minute),
 )
+
+// Create client from config struct (new - enables YAML/JSON/env loading)
+cfg := claude.Config{
+    Model:        "claude-opus-4-5-20251101",
+    SystemPrompt: "You are a code reviewer.",
+    MaxTurns:     10,
+}
+client = claude.NewFromConfig(cfg)
+
+// Create client from environment variables
+client = claude.NewFromEnv()  // Uses CLAUDE_* env vars
 
 // Make a completion request
 resp, err := client.Complete(ctx, claude.CompletionRequest{
@@ -48,6 +59,62 @@ for chunk := range stream {
     if chunk.Done { break }
 }
 ```
+
+### Configuration & Dependency Injection
+
+```go
+import "github.com/randalmurphal/llmkit/claude"
+
+// Struct-based config - serializable to YAML/JSON
+cfg := claude.Config{
+    Model:        "claude-opus-4-5-20251101",
+    MaxTurns:     20,
+    Timeout:      10*time.Minute,
+    MaxBudgetUSD: 5.0,
+    WorkDir:      "/app",
+}
+
+// Load from environment (CLAUDE_* prefix)
+cfg = claude.FromEnv()
+
+// Validate before use
+if err := cfg.Validate(); err != nil {
+    log.Fatal(err)
+}
+
+// Mix config with option overrides
+client := claude.NewFromConfig(cfg,
+    claude.WithDangerouslySkipPermissions(),  // option overrides config
+)
+
+// Singleton pattern for app-wide client
+claude.SetDefaultConfig(cfg)
+client = claude.GetDefaultClient()
+
+// Context injection for DI
+ctx := claude.ContextWithClient(context.Background(), client)
+// Later in handlers:
+client = claude.ClientFromContext(ctx)
+client = claude.MustClientFromContext(ctx)  // panics if missing
+
+// Testing with mock
+mock := claude.NewMockClient("test response")
+claude.SetDefaultClient(mock)
+defer claude.ResetDefaultClient()
+```
+
+**Environment Variables** (CLAUDE_ prefix):
+- `CLAUDE_MODEL` - Model name
+- `CLAUDE_FALLBACK_MODEL` - Fallback model
+- `CLAUDE_SYSTEM_PROMPT` - System prompt
+- `CLAUDE_MAX_TURNS` - Max turns
+- `CLAUDE_TIMEOUT` - Timeout (e.g., "5m")
+- `CLAUDE_MAX_BUDGET_USD` - Budget limit
+- `CLAUDE_WORK_DIR` - Working directory
+- `CLAUDE_PATH` - Path to claude binary
+- `CLAUDE_HOME_DIR` - Override HOME (containers)
+- `CLAUDE_CONFIG_DIR` - Override .claude directory
+- `CLAUDE_SKIP_PERMISSIONS` - Skip permissions (true/1)
 
 ### Template Rendering
 

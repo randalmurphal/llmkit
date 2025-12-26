@@ -9,7 +9,11 @@
 | File | Purpose |
 |------|---------|
 | `client.go` | `Client` interface definition |
-| `cli.go` | `ClaudeCLI` implementation |
+| `claude_cli.go` | `ClaudeCLI` implementation with functional options |
+| `config.go` | `Config` struct, validation, env loading, `ToOptions()` |
+| `factory.go` | `NewFromConfig()`, `NewFromEnv()` |
+| `singleton.go` | Default client management (`GetDefaultClient`, etc.) |
+| `context.go` | Context injection (`ContextWithClient`, `ClientFromContext`) |
 | `credentials.go` | OAuth credential loading/validation |
 | `request.go` | Request/response types |
 | `errors.go` | Error types and sentinels |
