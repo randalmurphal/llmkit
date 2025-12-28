@@ -286,8 +286,8 @@ func TestMockSession_SendAndOutput(t *testing.T) {
 	if len(sess.sendMessages) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(sess.sendMessages))
 	}
-	if sess.sendMessages[0].Content != "Hello!" {
-		t.Errorf("expected 'Hello!', got %q", sess.sendMessages[0].Content)
+	if sess.sendMessages[0].Message.Content != "Hello!" {
+		t.Errorf("expected 'Hello!', got %q", sess.sendMessages[0].Message.Content)
 	}
 
 	// Simulate output
@@ -367,7 +367,7 @@ func TestUserMessage_Marshal(t *testing.T) {
 		t.Fatalf("Marshal failed: %v", err)
 	}
 
-	expected := `{"type":"user","content":"Hello, Claude!"}`
+	expected := `{"type":"user","message":{"role":"user","content":"Hello, Claude!"}}`
 	if string(data) != expected {
 		t.Errorf("expected %q, got %q", expected, string(data))
 	}

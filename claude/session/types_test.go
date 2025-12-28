@@ -160,7 +160,10 @@ func TestNewUserMessage(t *testing.T) {
 	if msg.Type != "user" {
 		t.Errorf("expected type 'user', got %q", msg.Type)
 	}
-	if msg.Content != "Hello, Claude!" {
-		t.Errorf("expected content 'Hello, Claude!', got %q", msg.Content)
+	if msg.Message.Role != "user" {
+		t.Errorf("expected role 'user', got %q", msg.Message.Role)
+	}
+	if msg.Message.Content != "Hello, Claude!" {
+		t.Errorf("expected content 'Hello, Claude!', got %q", msg.Message.Content)
 	}
 }

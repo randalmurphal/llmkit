@@ -146,17 +146,26 @@ type HookMessage struct {
 	ExitCode  int    `json:"exit_code"`
 }
 
-// UserMessage is a message to send to Claude.
+// UserMessage is a message to send to Claude via stream-json input.
 type UserMessage struct {
-	Type    string `json:"type"`    // Always "user"
+	Type    string             `json:"type"`    // Always "user"
+	Message UserMessageContent `json:"message"` // The message content
+}
+
+// UserMessageContent contains the actual message content.
+type UserMessageContent struct {
+	Role    string `json:"role"`    // Always "user"
 	Content string `json:"content"` // The user's message text
 }
 
 // NewUserMessage creates a new user message for sending to Claude.
 func NewUserMessage(content string) UserMessage {
 	return UserMessage{
-		Type:    "user",
-		Content: content,
+		Type: "user",
+		Message: UserMessageContent{
+			Role:    "user",
+			Content: content,
+		},
 	}
 }
 
