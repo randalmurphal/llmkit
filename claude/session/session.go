@@ -419,22 +419,35 @@ func (s *session) Close() error {
 		_ = s.stdin.Close() // Best effort
 	}
 
-	// Give process time to exit gracefully
-	done := make(chan struct{})
-	go func() {
-		_ = s.cmd.Wait() // Captured in closeErr via readOutput
-		close(done)
-	}()
-
+	// Wait for the readOutput goroutine to finish, which will happen when:
+	// 1. Claude CLI exits after receiving EOF on stdin
+	// 2. The process is killed via context cancellation
+	// The s.done channel is closed by readOutput() when it exits.
 	select {
-	case <-done:
-		// Process exited cleanly
+	case <-s.done:
+		// readOutput() finished, process has exited
 	case <-time.After(5 * time.Second):
-		// Force kill
+		// Graceful shutdown timed out, force kill via context
 		if s.cancel != nil {
 			s.cancel()
 		}
-		<-done
+		// Wait a bit more for the forced exit
+		select {
+		case <-s.done:
+			// Process killed successfully
+		case <-time.After(2 * time.Second):
+			// Still not dead, try direct process kill as last resort
+			if s.cmd != nil && s.cmd.Process != nil {
+				_ = s.cmd.Process.Kill()
+			}
+			// Final wait with hard timeout
+			select {
+			case <-s.done:
+			case <-time.After(1 * time.Second):
+				// Give up waiting - process may be zombie
+				s.setCloseError(fmt.Errorf("process did not exit after kill"))
+			}
+		}
 	}
 
 	s.status.Store(StatusClosed)
