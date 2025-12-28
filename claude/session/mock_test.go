@@ -40,11 +40,12 @@ func newMockSession(id string) *mockSession {
 	}
 }
 
-func (m *mockSession) ID() string                   { return m.id }
-func (m *mockSession) Output() <-chan OutputMessage { return m.outputCh }
-func (m *mockSession) Status() SessionStatus        { return m.status }
-func (m *mockSession) Info() SessionInfo            { return m.info }
-func (m *mockSession) Wait() error                  { return nil }
+func (m *mockSession) ID() string                            { return m.id }
+func (m *mockSession) Output() <-chan OutputMessage          { return m.outputCh }
+func (m *mockSession) Status() SessionStatus                 { return m.status }
+func (m *mockSession) Info() SessionInfo                     { return m.info }
+func (m *mockSession) Wait() error                           { return nil }
+func (m *mockSession) WaitForInit(_ context.Context) error   { return nil }
 
 func (m *mockSession) Send(_ context.Context, msg UserMessage) error {
 	m.closeMu.Lock()

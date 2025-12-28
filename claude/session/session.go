@@ -17,6 +17,7 @@ import (
 // Session manages a long-running Claude CLI process with stream-json I/O.
 type Session interface {
 	// ID returns the session identifier.
+	// Note: May be empty until the first message exchange triggers the init.
 	ID() string
 
 	// Send sends a user message to Claude and returns immediately.
@@ -34,10 +35,15 @@ type Session interface {
 	Status() SessionStatus
 
 	// Info returns session metadata.
+	// Note: Some fields may be empty until the first message exchange.
 	Info() SessionInfo
 
 	// Wait blocks until the session completes.
 	Wait() error
+
+	// WaitForInit blocks until the init message is received.
+	// Call this after Send() if you need session metadata before proceeding.
+	WaitForInit(ctx context.Context) error
 }
 
 // session implements Session.
@@ -93,6 +99,12 @@ func newSession(ctx context.Context, opts ...SessionOption) (*session, error) {
 }
 
 // start spawns the Claude CLI process and begins output processing.
+//
+// Note: Claude CLI in stream-json mode only outputs the init message after
+// receiving the first user message. The session becomes active immediately
+// after the process starts, and the init message is captured when the first
+// Send() triggers a response. Session metadata (ID, model) may be empty until
+// the first message exchange.
 func (s *session) start(ctx context.Context) error {
 	// Create cancellable context for process lifetime
 	procCtx, cancel := context.WithCancel(context.Background())
@@ -129,15 +141,10 @@ func (s *session) start(ctx context.Context) error {
 	// Start output reader goroutine
 	go s.readOutput()
 
-	// Wait for initialization with timeout
-	initCtx, initCancel := context.WithTimeout(ctx, s.config.startupTimeout)
-	defer initCancel()
-
-	if err := s.waitForInit(initCtx); err != nil {
-		_ = s.Close() // Best effort cleanup on init failure
-		return fmt.Errorf("wait for init: %w", err)
-	}
-
+	// Claude CLI in stream-json mode outputs the init message only after
+	// receiving the first user message. We don't wait for init here -
+	// it will be captured by updateFromMessage() when the first response
+	// comes through.
 	s.status.Store(StatusActive)
 	return nil
 }
@@ -323,23 +330,30 @@ func (s *session) updateFromMessage(msg *OutputMessage) {
 	}
 }
 
-// waitForInit waits for the initialization message.
-func (s *session) waitForInit(ctx context.Context) error {
+// WaitForInit waits for the initialization message to be received.
+// This is useful if you need session metadata (ID, model, tools) before
+// proceeding. Call this after the first Send() to ensure init is available.
+//
+// Note: In normal usage, you don't need to call this - just Send() a message
+// and the init will be captured automatically.
+func (s *session) WaitForInit(ctx context.Context) error {
+	// Check if already initialized
+	if s.initMsg != nil {
+		return nil
+	}
+
+	// Wait for init message to arrive
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case msg, ok := <-s.outputCh:
-			if !ok {
-				return fmt.Errorf("session closed before init")
-			}
-			if msg.IsInit() {
-				// Re-send to channel for consumer
-				s.outputCh <- msg
+		case <-s.done:
+			return fmt.Errorf("session closed before init")
+		default:
+			if s.initMsg != nil {
 				return nil
 			}
-			// Re-queue non-init messages
-			s.outputCh <- msg
+			time.Sleep(10 * time.Millisecond)
 		}
 	}
 }

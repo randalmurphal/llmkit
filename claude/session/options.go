@@ -163,7 +163,11 @@ func WithMaxTurns(n int) SessionOption {
 	return func(c *sessionConfig) { c.maxTurns = n }
 }
 
-// WithStartupTimeout sets how long to wait for session initialization.
+// WithStartupTimeout sets the timeout for session startup operations.
+// Note: Claude CLI in stream-json mode outputs the init message only after
+// receiving the first user message, so this timeout is not used for waiting
+// on the init message. The session becomes active immediately after the
+// process starts. This option is kept for backwards compatibility.
 func WithStartupTimeout(d time.Duration) SessionOption {
 	return func(c *sessionConfig) { c.startupTimeout = d }
 }
