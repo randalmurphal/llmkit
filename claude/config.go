@@ -116,11 +116,37 @@ type Config struct {
 	// Valid values: "project", "local", "user"
 	SettingSources []string `json:"setting_sources" yaml:"setting_sources" mapstructure:"setting_sources"`
 
+	// --- MCP Configuration ---
+
+	// MCPConfigPath is the path to an MCP configuration JSON file.
+	// Maps to the --mcp-config CLI flag.
+	MCPConfigPath string `json:"mcp_config_path" yaml:"mcp_config_path" mapstructure:"mcp_config_path"`
+
+	// MCPServers defines MCP servers inline (alternative to config file).
+	// Keys are server names, values are server configurations.
+	MCPServers map[string]MCPServerConfig `json:"mcp_servers" yaml:"mcp_servers" mapstructure:"mcp_servers"`
+
+	// StrictMCPConfig ignores all MCP configurations except those specified.
+	// Maps to the --strict-mcp-config CLI flag.
+	StrictMCPConfig bool `json:"strict_mcp_config" yaml:"strict_mcp_config" mapstructure:"strict_mcp_config"`
+
 	// --- Advanced ---
 
 	// ClaudePath is the path to the claude CLI binary.
 	// Default: "claude" (found via PATH).
 	ClaudePath string `json:"claude_path" yaml:"claude_path" mapstructure:"claude_path"`
+}
+
+// MCPServerConfig defines an MCP server for the Claude CLI.
+type MCPServerConfig struct {
+	// Command is the command to run the MCP server.
+	Command string `json:"command" yaml:"command" mapstructure:"command"`
+
+	// Args are the arguments to pass to the command.
+	Args []string `json:"args" yaml:"args" mapstructure:"args"`
+
+	// Env provides environment variables for the server process.
+	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty" mapstructure:"env"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -189,6 +215,12 @@ func (c *Config) LoadFromEnv() {
 	}
 	if v := os.Getenv("CLAUDE_NO_SESSION_PERSISTENCE"); v == "true" || v == "1" {
 		c.NoSessionPersistence = true
+	}
+	if v := os.Getenv("CLAUDE_MCP_CONFIG"); v != "" {
+		c.MCPConfigPath = v
+	}
+	if v := os.Getenv("CLAUDE_STRICT_MCP_CONFIG"); v == "true" || v == "1" {
+		c.StrictMCPConfig = true
 	}
 }
 
@@ -296,6 +328,15 @@ func (c *Config) ToOptions() []ClaudeOption {
 	}
 	if len(c.SettingSources) > 0 {
 		opts = append(opts, WithSettingSources(c.SettingSources))
+	}
+	if c.MCPConfigPath != "" {
+		opts = append(opts, WithMCPConfig(c.MCPConfigPath))
+	}
+	if len(c.MCPServers) > 0 {
+		opts = append(opts, WithMCPServers(c.MCPServers))
+	}
+	if c.StrictMCPConfig {
+		opts = append(opts, WithStrictMCPConfig())
 	}
 	if c.ClaudePath != "" {
 		opts = append(opts, WithClaudePath(c.ClaudePath))

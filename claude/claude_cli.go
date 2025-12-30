@@ -74,6 +74,11 @@ type ClaudeCLI struct {
 	homeDir   string            // Override HOME env var (for credential discovery)
 	configDir string            // Override ~/.claude directory path
 	extraEnv  map[string]string // Additional environment variables
+
+	// MCP configuration
+	mcpConfigPaths  []string                   // --mcp-config paths (files or JSON strings)
+	mcpServers      map[string]MCPServerConfig // Inline server definitions
+	strictMCPConfig bool                       // --strict-mcp-config flag
 }
 
 // ClaudeOption configures ClaudeCLI.
@@ -248,6 +253,31 @@ func WithEnvVar(key, value string) ClaudeOption {
 	}
 }
 
+// WithMCPConfig adds an MCP configuration file path or JSON string.
+// Can be called multiple times to load multiple configs.
+// The path can be a file path to a JSON config, or a raw JSON string.
+func WithMCPConfig(pathOrJSON string) ClaudeOption {
+	return func(c *ClaudeCLI) {
+		c.mcpConfigPaths = append(c.mcpConfigPaths, pathOrJSON)
+	}
+}
+
+// WithMCPServers sets inline MCP server definitions.
+// The servers are converted to JSON and passed via --mcp-config.
+// This is an alternative to WithMCPConfig for programmatic configuration.
+func WithMCPServers(servers map[string]MCPServerConfig) ClaudeOption {
+	return func(c *ClaudeCLI) {
+		c.mcpServers = servers
+	}
+}
+
+// WithStrictMCPConfig enables strict MCP configuration mode.
+// When enabled, only MCP servers specified via WithMCPConfig or WithMCPServers
+// are used, ignoring any other configured MCP servers.
+func WithStrictMCPConfig() ClaudeOption {
+	return func(c *ClaudeCLI) { c.strictMCPConfig = true }
+}
+
 // CLIResponse represents the full JSON response from Claude CLI.
 type CLIResponse struct {
 	Type         string                   `json:"type"`
@@ -332,6 +362,7 @@ func (c *ClaudeCLI) Complete(ctx context.Context, req CompletionRequest) (*Compl
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	cmd.Stdin = nil // Use /dev/null to prevent TTY/raw mode errors in containers
 
 	if err := cmd.Run(); err != nil {
 		// Check for context cancellation first
@@ -356,6 +387,7 @@ func (c *ClaudeCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan S
 	args := c.buildArgsWithFormat(req, OutputFormatStreamJSON)
 	cmd := exec.CommandContext(ctx, c.path, args...)
 	c.setupCmd(cmd)
+	cmd.Stdin = nil // Use /dev/null to prevent TTY/raw mode errors in containers
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -475,6 +507,9 @@ func (c *ClaudeCLI) buildArgsWithFormat(req CompletionRequest, format OutputForm
 	// Tool control
 	args = c.appendToolArgs(args)
 
+	// MCP configuration
+	args = c.appendMCPArgs(args)
+
 	// Permissions and settings
 	args = c.appendPermissionArgs(args)
 
@@ -593,6 +628,31 @@ func (c *ClaudeCLI) appendPermissionArgs(args []string) []string {
 	// Additional directories
 	for _, dir := range c.addDirs {
 		args = append(args, "--add-dir", dir)
+	}
+
+	return args
+}
+
+// appendMCPArgs adds MCP configuration arguments.
+func (c *ClaudeCLI) appendMCPArgs(args []string) []string {
+	// Add config file paths or JSON strings
+	for _, pathOrJSON := range c.mcpConfigPaths {
+		args = append(args, "--mcp-config", pathOrJSON)
+	}
+
+	// Add inline servers as JSON string
+	if len(c.mcpServers) > 0 {
+		mcpJSON, err := json.Marshal(map[string]any{
+			"mcpServers": c.mcpServers,
+		})
+		if err == nil {
+			args = append(args, "--mcp-config", string(mcpJSON))
+		}
+	}
+
+	// Strict mode
+	if c.strictMCPConfig {
+		args = append(args, "--strict-mcp-config")
 	}
 
 	return args

@@ -83,6 +83,7 @@ func newSession(ctx context.Context, opts ...SessionOption) (*session, error) {
 
 	s := &session{
 		config:    cfg,
+		id:        cfg.sessionID, // Use provided session ID immediately (if any)
 		outputCh:  make(chan OutputMessage, 100),
 		done:      make(chan struct{}),
 		createdAt: time.Now(),
