@@ -105,21 +105,27 @@ func (c *SessionClient) Complete(ctx context.Context, req CompletionRequest) (*C
 	var content strings.Builder
 	var result *session.ResultMessage
 
-	for msg := range c.session.Output() {
+	outputCh := c.session.Output()
+collectLoop:
+	for {
 		select {
 		case <-ctx.Done():
 			return nil, NewError("complete", ctx.Err(), false)
-		default:
-		}
+		case msg, ok := <-outputCh:
+			if !ok {
+				// Channel closed without result
+				break collectLoop
+			}
 
-		if msg.IsAssistant() {
-			text := msg.GetText()
-			content.WriteString(text)
-		}
+			if msg.IsAssistant() {
+				text := msg.GetText()
+				content.WriteString(text)
+			}
 
-		if msg.IsResult() {
-			result = msg.Result
-			break
+			if msg.IsResult() {
+				result = msg.Result
+				break collectLoop
+			}
 		}
 	}
 
