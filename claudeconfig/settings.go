@@ -329,3 +329,52 @@ func GlobalSettingsPath() (string, error) {
 	}
 	return filepath.Join(home, ".claude", "settings.json"), nil
 }
+
+// OrcExtension represents the orc-specific settings stored in extensions["orc"].
+type OrcExtension struct {
+	ToolPermissions *ToolPermissions `json:"tool_permissions,omitempty"`
+}
+
+// GetToolPermissions extracts tool permissions from settings.
+// It first checks extensions["tool_permissions"], then extensions["orc"].tool_permissions.
+func GetToolPermissions(settings *Settings) (*ToolPermissions, error) {
+	if settings == nil {
+		return nil, nil
+	}
+
+	// Try direct tool_permissions extension first
+	var perms ToolPermissions
+	if err := settings.GetExtension("tool_permissions", &perms); err != nil {
+		return nil, fmt.Errorf("get tool_permissions extension: %w", err)
+	}
+	if !perms.IsEmpty() {
+		return &perms, nil
+	}
+
+	// Try orc extension
+	var orcExt OrcExtension
+	if err := settings.GetExtension("orc", &orcExt); err != nil {
+		return nil, fmt.Errorf("get orc extension: %w", err)
+	}
+	if orcExt.ToolPermissions != nil && !orcExt.ToolPermissions.IsEmpty() {
+		return orcExt.ToolPermissions, nil
+	}
+
+	return nil, nil
+}
+
+// SetToolPermissions stores tool permissions in the orc extension.
+func SetToolPermissions(settings *Settings, perms *ToolPermissions) error {
+	if settings == nil {
+		return fmt.Errorf("settings is nil")
+	}
+
+	// Get existing orc extension
+	var orcExt OrcExtension
+	_ = settings.GetExtension("orc", &orcExt) // Ignore error, use empty if not exists
+
+	orcExt.ToolPermissions = perms
+	settings.SetExtension("orc", orcExt)
+
+	return nil
+}
