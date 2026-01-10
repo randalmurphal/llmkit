@@ -100,7 +100,9 @@ func WithResume(sessionID string) SessionOption {
 	}
 }
 
-// WithNoSessionPersistence disables saving session data.
+// WithNoSessionPersistence is deprecated: --no-session-persistence only works with --print mode.
+// Since sessions use interactive mode, this option has no effect.
+// Session persistence is controlled by Claude Code's internal behavior.
 func WithNoSessionPersistence() SessionOption {
 	return func(c *sessionConfig) { c.noSessionPersistence = true }
 }

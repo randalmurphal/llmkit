@@ -166,9 +166,9 @@ func (s *session) buildArgs() []string {
 			args = append(args, "--session-id", s.config.sessionID)
 		}
 	}
-	if s.config.noSessionPersistence {
-		args = append(args, "--no-session-persistence")
-	}
+	// Note: --no-session-persistence only works with --print mode
+	// Sessions don't use --print, so we skip this flag here
+	// Session persistence is controlled by Claude Code's behavior
 
 	// Model
 	if s.config.model != "" {
