@@ -1,8 +1,6 @@
 package aider
 
 import (
-	"context"
-
 	"github.com/randalmurphal/llmkit/provider"
 )
 
@@ -75,37 +73,6 @@ func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
 		}
 	}
 
-	return &aiderProviderAdapter{
-		cli: NewAiderCLI(opts...),
-	}, nil
-}
-
-// aiderProviderAdapter wraps AiderCLI to implement provider.Client.
-type aiderProviderAdapter struct {
-	cli *AiderCLI
-}
-
-// Complete implements provider.Client.
-func (a *aiderProviderAdapter) Complete(ctx context.Context, req provider.Request) (*provider.Response, error) {
-	return a.cli.Complete(ctx, req)
-}
-
-// Stream implements provider.Client.
-func (a *aiderProviderAdapter) Stream(ctx context.Context, req provider.Request) (<-chan provider.StreamChunk, error) {
-	return a.cli.Stream(ctx, req)
-}
-
-// Provider implements provider.Client.
-func (a *aiderProviderAdapter) Provider() string {
-	return a.cli.Provider()
-}
-
-// Capabilities implements provider.Client.
-func (a *aiderProviderAdapter) Capabilities() provider.Capabilities {
-	return a.cli.Capabilities()
-}
-
-// Close implements provider.Client.
-func (a *aiderProviderAdapter) Close() error {
-	return a.cli.Close()
+	// AiderCLI implements provider.Client directly
+	return NewAiderCLI(opts...), nil
 }

@@ -251,8 +251,10 @@ func TestContinueCLI_Capabilities(t *testing.T) {
 	cli := NewContinueCLI()
 	caps := cli.Capabilities()
 
-	if !caps.Streaming {
-		t.Error("expected Streaming = true")
+	// Streaming is false because Stream() simulates via Complete()
+	// Use StreamWithProcess() for actual streaming
+	if caps.Streaming {
+		t.Error("expected Streaming = false (simulated streaming via Complete)")
 	}
 	if !caps.Tools {
 		t.Error("expected Tools = true")

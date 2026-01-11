@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/randalmurphal/llmkit/provider"
@@ -111,16 +112,15 @@ func (c *AiderCLI) Complete(ctx context.Context, req provider.Request) (*provide
 func (c *AiderCLI) Stream(ctx context.Context, req provider.Request) (<-chan provider.StreamChunk, error) {
 	prompt := c.extractPrompt(req)
 	if prompt == "" {
-		return nil, fmt.Errorf("no prompt provided")
+		return nil, provider.NewError("aider", "stream", fmt.Errorf("no prompt provided"), false)
 	}
 
 	args := c.buildArgs(prompt)
 
 	cmdCtx := ctx
+	var cancel context.CancelFunc
 	if c.timeout > 0 {
-		var cancel context.CancelFunc
 		cmdCtx, cancel = context.WithTimeout(ctx, c.timeout)
-		defer cancel()
 	}
 
 	cmd := exec.CommandContext(cmdCtx, c.path, args...)
@@ -129,17 +129,26 @@ func (c *AiderCLI) Stream(ctx context.Context, req provider.Request) (<-chan pro
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, provider.NewError("aider", "stream",
 			fmt.Errorf("stdout pipe: %w", err), false)
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, provider.NewError("aider", "stream",
 			fmt.Errorf("stderr pipe: %w", err), false)
 	}
 
 	if err := cmd.Start(); err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, provider.NewError("aider", "stream",
 			fmt.Errorf("start: %w", err), false)
 	}
@@ -148,10 +157,16 @@ func (c *AiderCLI) Stream(ctx context.Context, req provider.Request) (<-chan pro
 
 	go func() {
 		defer close(ch)
+		if cancel != nil {
+			defer cancel() // Cancel context when goroutine completes
+		}
 
-		// Read stderr in background
+		// Read stderr in background with proper synchronization
 		var stderrBuf bytes.Buffer
+		var stderrWg sync.WaitGroup
+		stderrWg.Add(1)
 		go func() {
+			defer stderrWg.Done()
 			scanner := bufio.NewScanner(stderr)
 			for scanner.Scan() {
 				stderrBuf.WriteString(scanner.Text())
@@ -173,6 +188,9 @@ func (c *AiderCLI) Stream(ctx context.Context, req provider.Request) (<-chan pro
 				Done:    false,
 			}
 		}
+
+		// Wait for stderr goroutine to complete before accessing stderrBuf
+		stderrWg.Wait()
 
 		// Wait for command to finish
 		err := cmd.Wait()
@@ -303,13 +321,25 @@ func (c *AiderCLI) buildEnv() []string {
 
 	// Add Ollama API base if set
 	if c.ollamaAPIBase != "" {
-		env = append(env, "OLLAMA_API_BASE="+c.ollamaAPIBase)
+		env = setEnvVar(env, "OLLAMA_API_BASE", c.ollamaAPIBase)
 	}
 
 	// Add extra env vars
 	for k, v := range c.extraEnv {
-		env = append(env, k+"="+v)
+		env = setEnvVar(env, k, v)
 	}
 
 	return env
+}
+
+// setEnvVar sets or replaces an environment variable in the env slice.
+func setEnvVar(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }

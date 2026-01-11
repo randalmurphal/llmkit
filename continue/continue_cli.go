@@ -139,7 +139,7 @@ func (c *ContinueCLI) Provider() string {
 // Capabilities implements provider.Client.
 func (c *ContinueCLI) Capabilities() provider.Capabilities {
 	return provider.Capabilities{
-		Streaming:   true,
+		Streaming:   false, // Stream() simulates via Complete(); use StreamWithProcess for real streaming
 		Tools:       true,
 		MCP:         true,
 		Sessions:    true,
@@ -177,6 +177,11 @@ func (c *ContinueCLI) extractPrompt(req provider.Request) string {
 // buildArgs constructs CLI arguments.
 func (c *ContinueCLI) buildArgs(prompt string) []string {
 	args := []string{"-p", prompt}
+
+	// Model
+	if c.model != "" {
+		args = append(args, "--model", c.model)
+	}
 
 	// Config file
 	if c.configPath != "" {
@@ -218,15 +223,27 @@ func (c *ContinueCLI) buildEnv() []string {
 
 	// Add API key if set
 	if c.apiKey != "" {
-		env = append(env, "CONTINUE_API_KEY="+c.apiKey)
+		env = setEnvVar(env, "CONTINUE_API_KEY", c.apiKey)
 	}
 
 	// Add extra env vars
 	for k, v := range c.extraEnv {
-		env = append(env, k+"="+v)
+		env = setEnvVar(env, k, v)
 	}
 
 	return env
+}
+
+// setEnvVar sets or replaces an environment variable in the env slice.
+func setEnvVar(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
 
 // parseResponse parses cn output.
@@ -279,10 +296,9 @@ func (c *ContinueCLI) StreamWithProcess(ctx context.Context, req provider.Reques
 	args := c.buildArgs(prompt)
 
 	cmdCtx := ctx
+	var cancel context.CancelFunc
 	if c.timeout > 0 {
-		var cancel context.CancelFunc
 		cmdCtx, cancel = context.WithTimeout(ctx, c.timeout)
-		defer cancel()
 	}
 
 	cmd := exec.CommandContext(cmdCtx, c.path, args...)
@@ -291,11 +307,17 @@ func (c *ContinueCLI) StreamWithProcess(ctx context.Context, req provider.Reques
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, provider.NewError("continue", "stream",
 			fmt.Errorf("stdout pipe: %w", err), false)
 	}
 
 	if err := cmd.Start(); err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, provider.NewError("continue", "stream",
 			fmt.Errorf("start: %w", err), false)
 	}
@@ -305,6 +327,9 @@ func (c *ContinueCLI) StreamWithProcess(ctx context.Context, req provider.Reques
 	go func() {
 		defer close(ch)
 		defer cmd.Wait() //nolint:errcheck
+		if cancel != nil {
+			defer cancel() // Cancel context when goroutine completes
+		}
 
 		scanner := bufio.NewScanner(stdout)
 		var content strings.Builder

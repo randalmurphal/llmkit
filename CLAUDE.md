@@ -1,8 +1,6 @@
 # llmkit
 
-**Go library for LLM utilities.** Standalone toolkit for token counting, prompt templates, response parsing, model selection, and Claude CLI integration.
-
-**Status**: Structure ready, pending code extraction from flowgraph.
+**Go library for LLM utilities.** Multi-provider toolkit for LLM integration with unified interface, token counting, prompt templates, response parsing, and model selection.
 
 ---
 
@@ -10,7 +8,13 @@
 
 | Package | Purpose | Key Types |
 |---------|---------|-----------|
-| `claude/` | Claude CLI wrapper | `Client`, `ClaudeCLI`, `Config`, `MockClient`, `CompletionRequest` |
+| `provider/` | Unified multi-provider interface | `Client`, `Config`, `Request`, `Response`, `Register` |
+| `claude/` | Claude CLI wrapper | `ClaudeCLI`, `Config`, `MockClient` |
+| `gemini/` | Gemini CLI wrapper | `GeminiCLI`, `Config` |
+| `codex/` | OpenAI Codex CLI wrapper | `CodexCLI`, `Config` |
+| `opencode/` | OpenCode CLI wrapper | `OpenCodeCLI`, `Config` |
+| `continue/` | Continue.dev CLI wrapper (local models) | `ContinueCLI`, `Config` |
+| `aider/` | Aider CLI wrapper (git-centric editing) | `AiderCLI`, `Config`, `EditMarker` |
 | `template/` | Prompt template rendering | `Engine`, `Template`, `Render` |
 | `tokens/` | Token counting and budgeting | `Counter`, `Budget`, `Estimate` |
 | `parser/` | Extract structured data from LLM responses | `ExtractJSON`, `ExtractYAML`, `ExtractCodeBlocks` |
@@ -20,6 +24,40 @@
 ---
 
 ## Quick Reference
+
+### Unified Provider Interface
+
+```go
+import (
+    "github.com/randalmurphal/llmkit/provider"
+    // Import providers to auto-register them
+    _ "github.com/randalmurphal/llmkit/claude"
+    _ "github.com/randalmurphal/llmkit/gemini"
+    _ "github.com/randalmurphal/llmkit/continue"
+    _ "github.com/randalmurphal/llmkit/aider"
+)
+
+// Create any provider with unified config
+cfg := provider.Config{
+    Provider:     "claude",  // or "gemini", "continue", "aider"
+    Model:        "claude-sonnet-4-20250514",
+    Timeout:      5 * time.Minute,
+    WorkDir:      "/path/to/project",
+}
+
+client, err := provider.New(cfg.Provider, cfg)
+if err != nil { ... }
+defer client.Close()
+
+// Universal request/response
+resp, err := client.Complete(ctx, provider.Request{
+    SystemPrompt: "You are a helpful assistant.",
+    Messages: []provider.Message{
+        {Role: provider.RoleUser, Content: "Hello!"},
+    },
+})
+fmt.Println(resp.Content)
+```
 
 ### Claude CLI
 
@@ -58,6 +96,63 @@ for chunk := range stream {
     fmt.Print(chunk.Content)
     if chunk.Done { break }
 }
+```
+
+### Continue.dev CLI (Local Models)
+
+```go
+import continuedev "github.com/randalmurphal/llmkit/continue"
+
+// Create Continue.dev client for local model support
+cli := continuedev.NewContinueCLI(
+    continuedev.WithModel("llama3.2:latest"),
+    continuedev.WithConfigPath("~/.continue/config.yaml"),
+    continuedev.WithAllowedTools([]string{"Write()", "Edit()"}),
+    continuedev.WithExcludedTools([]string{"Bash(rm *)"}),
+)
+
+// Or use provider interface
+cfg := provider.Config{
+    Provider: "continue",
+    Model:    "llama3.2:latest",
+    WorkDir:  "/path/to/project",
+    Options: map[string]any{
+        "config_path":    "~/.continue/config.yaml",
+        "allowed_tools":  []string{"Write()", "Edit()"},
+        "verbose":        true,
+    },
+}
+client, _ := provider.New("continue", cfg)
+```
+
+### Aider CLI (Git-Centric Editing)
+
+```go
+import "github.com/randalmurphal/llmkit/aider"
+
+// Create Aider client for git-aware code editing
+cli := aider.NewAiderCLI(
+    aider.WithModel("ollama_chat/llama3.2:latest"),
+    aider.WithEditableFiles([]string{"src/main.go", "src/utils.go"}),
+    aider.WithReadOnlyFiles([]string{"README.md"}),
+    aider.WithYesAlways(),        // Auto-confirm for automation
+    aider.WithNoAutoCommits(),    // Control commits manually
+)
+
+// Or use provider interface
+cfg := provider.Config{
+    Provider: "aider",
+    Model:    "ollama_chat/llama3.2:latest",
+    WorkDir:  "/path/to/project",
+    Options: map[string]any{
+        "editable_files":   []string{"src/main.go"},
+        "read_only_files":  []string{"README.md"},
+        "yes_always":       true,
+        "no_auto_commits":  true,
+        "ollama_api_base":  "http://localhost:11434",
+    },
+}
+client, _ := provider.New("aider", cfg)
 ```
 
 ### Configuration & Dependency Injection
@@ -218,7 +313,13 @@ cost := tracker.EstimatedCost()  // USD
 
 ```
 llmkit/
-├── claude/      # No internal deps
+├── provider/    # Core interface, no internal deps
+├── claude/      # Imports provider/
+├── gemini/      # Imports provider/
+├── codex/       # Imports provider/
+├── opencode/    # Imports provider/
+├── continue/    # Imports provider/
+├── aider/       # Imports provider/
 ├── template/    # No internal deps
 ├── tokens/      # No internal deps
 ├── parser/      # No internal deps
@@ -226,7 +327,7 @@ llmkit/
 └── model/       # No internal deps
 ```
 
-Only `truncate/` depends on another package (`tokens/`).
+All CLI wrappers depend on `provider/` for the unified interface.
 
 ---
 
@@ -255,7 +356,10 @@ make verify
 | `.spec/SPEC.md` | Full specification |
 | `.spec/tracking/PROGRESS.md` | Implementation progress |
 | `.spec/phases/*.md` | Phase-by-phase plan |
+| `provider/doc.go` | Provider interface documentation |
 | `claude/CLAUDE.md` | Claude package details |
+| `continue/doc.go` | Continue.dev CLI documentation |
+| `aider/doc.go` | Aider CLI documentation |
 | `template/CLAUDE.md` | Template package details |
 | `tokens/CLAUDE.md` | Tokens package details |
 | `parser/CLAUDE.md` | Parser package details |

@@ -1,8 +1,6 @@
 package continuedev
 
 import (
-	"context"
-
 	"github.com/randalmurphal/llmkit/provider"
 )
 
@@ -30,6 +28,14 @@ func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
 	}
 	if len(cfg.Env) > 0 {
 		opts = append(opts, WithEnv(cfg.Env))
+	}
+
+	// Map top-level tool permissions (if provider.Config has these)
+	if len(cfg.AllowedTools) > 0 {
+		opts = append(opts, WithAllowedTools(cfg.AllowedTools))
+	}
+	if len(cfg.DisallowedTools) > 0 {
+		opts = append(opts, WithExcludedTools(cfg.DisallowedTools))
 	}
 
 	// Map Continue-specific options from Options map
@@ -64,7 +70,7 @@ func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
 			opts = append(opts, WithResume())
 		}
 
-		// Tool permissions
+		// Tool permissions from Options (overrides top-level if set)
 		if allowed := cfg.GetStringSliceOption("allowed_tools"); len(allowed) > 0 {
 			opts = append(opts, WithAllowedTools(allowed))
 		}
@@ -76,37 +82,6 @@ func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
 		}
 	}
 
-	return &continueProviderAdapter{
-		cli: NewContinueCLI(opts...),
-	}, nil
-}
-
-// continueProviderAdapter wraps ContinueCLI to implement provider.Client.
-type continueProviderAdapter struct {
-	cli *ContinueCLI
-}
-
-// Complete implements provider.Client.
-func (a *continueProviderAdapter) Complete(ctx context.Context, req provider.Request) (*provider.Response, error) {
-	return a.cli.Complete(ctx, req)
-}
-
-// Stream implements provider.Client.
-func (a *continueProviderAdapter) Stream(ctx context.Context, req provider.Request) (<-chan provider.StreamChunk, error) {
-	return a.cli.Stream(ctx, req)
-}
-
-// Provider implements provider.Client.
-func (a *continueProviderAdapter) Provider() string {
-	return a.cli.Provider()
-}
-
-// Capabilities implements provider.Client.
-func (a *continueProviderAdapter) Capabilities() provider.Capabilities {
-	return a.cli.Capabilities()
-}
-
-// Close implements provider.Client.
-func (a *continueProviderAdapter) Close() error {
-	return a.cli.Close()
+	// ContinueCLI implements provider.Client directly
+	return NewContinueCLI(opts...), nil
 }

@@ -41,8 +41,8 @@ type EditMarker struct {
 func ParseEditMarkers(output string) []EditMarker {
 	var markers []EditMarker
 
-	// Pattern: "Applied edit to <file>"
-	appliedRe := regexp.MustCompile(`(?i)Applied edit to (.+)`)
+	// Pattern: "Applied edit to <file>" - use non-greedy match to stop at line end
+	appliedRe := regexp.MustCompile(`(?i)Applied edit to ([^\s]+)`)
 	for _, match := range appliedRe.FindAllStringSubmatch(output, -1) {
 		if len(match) > 1 {
 			markers = append(markers, EditMarker{
@@ -52,8 +52,8 @@ func ParseEditMarkers(output string) []EditMarker {
 		}
 	}
 
-	// Pattern: "Created <file>"
-	createdRe := regexp.MustCompile(`(?i)Created (.+\.[\w]+)`)
+	// Pattern: "Created <file>" - handle files with and without extensions
+	createdRe := regexp.MustCompile(`(?i)Created ([^\s]+)`)
 	for _, match := range createdRe.FindAllStringSubmatch(output, -1) {
 		if len(match) > 1 {
 			markers = append(markers, EditMarker{
@@ -63,8 +63,8 @@ func ParseEditMarkers(output string) []EditMarker {
 		}
 	}
 
-	// Pattern: "Wrote <file>"
-	wroteRe := regexp.MustCompile(`(?i)Wrote (.+\.[\w]+)`)
+	// Pattern: "Wrote <file>" - handle files with and without extensions
+	wroteRe := regexp.MustCompile(`(?i)Wrote ([^\s]+)`)
 	for _, match := range wroteRe.FindAllStringSubmatch(output, -1) {
 		if len(match) > 1 {
 			markers = append(markers, EditMarker{
@@ -75,7 +75,7 @@ func ParseEditMarkers(output string) []EditMarker {
 	}
 
 	// Pattern: "Add <file> to the chat" (file added for editing)
-	addedRe := regexp.MustCompile(`(?i)Add (.+\.[\w]+) to the chat`)
+	addedRe := regexp.MustCompile(`(?i)Add ([^\s]+) to the chat`)
 	for _, match := range addedRe.FindAllStringSubmatch(output, -1) {
 		if len(match) > 1 {
 			markers = append(markers, EditMarker{
@@ -144,10 +144,12 @@ func ContainsCommit(output string) bool {
 }
 
 // ExtractCommitHash extracts a git commit hash from Aider output.
+// Looks for patterns like "Committed abc1234" or "commit a1b2c3d4".
 func ExtractCommitHash(output string) string {
-	re := regexp.MustCompile(`[a-f0-9]{7,40}`)
-	if match := re.FindString(output); match != "" {
-		return match
+	// Look for commit hash preceded by "commit" or "Committed" keyword
+	re := regexp.MustCompile(`(?i)(?:commit(?:ted)?)\s+([a-f0-9]{7,40})\b`)
+	if match := re.FindStringSubmatch(output); len(match) > 1 {
+		return match[1]
 	}
 	return ""
 }
