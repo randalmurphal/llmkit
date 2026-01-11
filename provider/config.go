@@ -84,22 +84,39 @@ type Config struct {
 	//
 	// Claude:
 	//   - "permission_mode": "acceptEdits" | "bypassPermissions"
+	//   - "skip_permissions": bool (dangerously skip all permission prompts)
 	//   - "session_id": string
 	//   - "home_dir": string (for containers)
 	//   - "config_dir": string
 	//   - "output_format": "json" | "stream-json" | "text"
+	//   - "claude_path": string (path to claude binary)
+	//   - "continue": bool (continue most recent session)
+	//   - "resume": string (resume specific session ID)
+	//   - "no_session_persistence": bool
+	//   - "json_schema": string (JSON schema for structured output)
+	//   - "tools": []string (exact tool set, different from allowed_tools)
+	//   - "setting_sources": []string (e.g., ["project", "local", "user"])
+	//   - "add_dirs": []string (additional directories for file access)
+	//   - "append_system_prompt": string (append to system prompt)
+	//   - "mcp_config": string (MCP config file path or JSON)
+	//   - "mcp_config_paths": []string (multiple MCP config paths)
+	//   - "strict_mcp_config": bool
 	//
 	// Gemini:
 	//   - "include_directories": []string
+	//   - "yolo": bool (auto-approve all actions)
+	//   - "sandbox": string (docker/podman/custom, via GEMINI_SANDBOX env)
 	//
 	// Codex:
 	//   - "sandbox": "read-only" | "workspace-write" | "danger-full-access"
 	//   - "ask_for_approval": "untrusted" | "on-failure" | "on-request" | "never"
 	//   - "search": bool
+	//   - "full_auto": bool
 	//
 	// OpenCode:
 	//   - "quiet": bool
 	//   - "agent": "build" | "plan"
+	//   - "debug": bool
 	//
 	// Local:
 	//   - "backend": "ollama" | "llama.cpp" | "vllm"
@@ -270,4 +287,25 @@ func (c Config) GetIntOption(key string, defaultVal int) int {
 		return int(v)
 	}
 	return defaultVal
+}
+
+// GetStringSliceOption retrieves a string slice option, returning nil if not set.
+// Handles both []string and []any (from JSON unmarshaling).
+func (c Config) GetStringSliceOption(key string) []string {
+	if c.Options == nil {
+		return nil
+	}
+	switch v := c.Options[key].(type) {
+	case []string:
+		return v
+	case []any:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	}
+	return nil
 }

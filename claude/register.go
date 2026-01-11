@@ -104,6 +104,40 @@ func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
 		if cfg.GetBoolOption("no_session_persistence", false) {
 			opts = append(opts, WithNoSessionPersistence())
 		}
+
+		// JSON schema for structured output
+		if js := cfg.GetStringOption("json_schema", ""); js != "" {
+			opts = append(opts, WithJSONSchema(js))
+		}
+
+		// Exact tool set (different from allowed tools whitelist)
+		if tools := cfg.GetStringSliceOption("tools"); len(tools) > 0 {
+			opts = append(opts, WithTools(tools))
+		}
+
+		// Setting sources (project, local, user)
+		if sources := cfg.GetStringSliceOption("setting_sources"); len(sources) > 0 {
+			opts = append(opts, WithSettingSources(sources))
+		}
+
+		// Additional directories for file access
+		if addDirs := cfg.GetStringSliceOption("add_dirs"); len(addDirs) > 0 {
+			opts = append(opts, WithAddDirs(addDirs))
+		}
+
+		// Append to system prompt (without replacing)
+		if asp := cfg.GetStringOption("append_system_prompt", ""); asp != "" {
+			opts = append(opts, WithAppendSystemPrompt(asp))
+		}
+
+		// MCP config file paths (in addition to inline servers)
+		if mcpConfigs := cfg.GetStringSliceOption("mcp_config_paths"); len(mcpConfigs) > 0 {
+			for _, pathOrJSON := range mcpConfigs {
+				opts = append(opts, WithMCPConfig(pathOrJSON))
+			}
+		} else if mcpConfig := cfg.GetStringOption("mcp_config", ""); mcpConfig != "" {
+			opts = append(opts, WithMCPConfig(mcpConfig))
+		}
 	}
 
 	// Handle MCP configuration
