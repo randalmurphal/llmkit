@@ -234,13 +234,16 @@ func TestOpenCodeCLI_Capabilities(t *testing.T) {
 	assert.False(t, caps.Sessions) // OpenCode doesn't support sessions
 	assert.False(t, caps.Images)   // OpenCode doesn't support images
 
-	// Check native tools
+	// Check native tools (updated based on official OpenCode documentation)
 	assert.True(t, caps.HasTool("write"))
 	assert.True(t, caps.HasTool("edit"))
 	assert.True(t, caps.HasTool("bash"))
-	assert.True(t, caps.HasTool("WebFetch"))
-	assert.True(t, caps.HasTool("Task"))
-	assert.False(t, caps.HasTool("Read")) // Not a native tool
+	assert.True(t, caps.HasTool("fetch")) // OpenCode uses lowercase "fetch"
+	assert.True(t, caps.HasTool("agent")) // OpenCode uses "agent" not "Task"
+	assert.True(t, caps.HasTool("glob"))
+	assert.True(t, caps.HasTool("grep"))
+	assert.True(t, caps.HasTool("view"))
+	assert.False(t, caps.HasTool("Read")) // Not a native tool (uses "view" instead)
 }
 
 func TestOpenCodeCLI_Close(t *testing.T) {

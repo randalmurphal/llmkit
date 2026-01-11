@@ -44,9 +44,9 @@ func TestGeminiCLI_NewOptions(t *testing.T) {
 
 	// Test tool control options
 	t.Run("tool control options", func(t *testing.T) {
+		// Note: Gemini CLI only supports --allowed-tools, not --disallowed-tools
 		client := gemini.NewGeminiCLI(
 			gemini.WithAllowedTools([]string{"read_file", "write_file"}),
-			gemini.WithDisallowedTools([]string{"run_shell_command"}),
 		)
 		assert.NotNil(t, client)
 	})
@@ -113,7 +113,7 @@ func TestGeminiCLI_NewOptions(t *testing.T) {
 			gemini.WithOutputFormat(gemini.OutputFormatJSON),
 			gemini.WithYolo(),
 			gemini.WithSandbox("docker"),
-			gemini.WithDisallowedTools([]string{"run_shell_command"}),
+			gemini.WithAllowedTools([]string{"read_file", "write_file"}),
 			gemini.WithSystemPrompt("Be extra careful with code changes"),
 		)
 		assert.NotNil(t, client)
@@ -334,18 +334,17 @@ func TestConfig_Validate(t *testing.T) {
 
 func TestConfig_ToOptions(t *testing.T) {
 	cfg := gemini.Config{
-		Model:           "gemini-2.5-pro",
-		SystemPrompt:    "You are helpful",
-		MaxTurns:        10,
-		Timeout:         5 * time.Minute,
-		WorkDir:         "/project",
-		AllowedTools:    []string{"read_file"},
-		DisallowedTools: []string{"write_file"},
-		Yolo:            true,
-		OutputFormat:    gemini.OutputFormatJSON,
-		IncludeDirs:     []string{"/extra"},
-		Sandbox:         "docker",
-		GeminiPath:      "/usr/bin/gemini",
+		Model:        "gemini-2.5-pro",
+		SystemPrompt: "You are helpful",
+		MaxTurns:     10,
+		Timeout:      5 * time.Minute,
+		WorkDir:      "/project",
+		AllowedTools: []string{"read_file", "write_file"},
+		Yolo:         true,
+		OutputFormat: gemini.OutputFormatJSON,
+		IncludeDirs:  []string{"/extra"},
+		Sandbox:      "docker",
+		GeminiPath:   "/usr/bin/gemini",
 	}
 
 	opts := cfg.ToOptions()

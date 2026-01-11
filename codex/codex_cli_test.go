@@ -217,14 +217,16 @@ func TestCodexCLI_Capabilities(t *testing.T) {
 
 	assert.True(t, caps.Streaming)
 	assert.True(t, caps.Tools)
-	assert.True(t, caps.MCP)
+	assert.False(t, caps.MCP) // MCP requires config.toml, not supported via CLI flags
 	assert.True(t, caps.Sessions)
 	assert.True(t, caps.Images)
-	assert.Contains(t, caps.NativeTools, "file_read")
-	assert.Contains(t, caps.NativeTools, "file_write")
+	// Updated native tools based on Codex documentation
 	assert.Contains(t, caps.NativeTools, "shell")
+	assert.Contains(t, caps.NativeTools, "apply_diff")
+	assert.Contains(t, caps.NativeTools, "read_file")
+	assert.Contains(t, caps.NativeTools, "list_dir")
 	assert.Contains(t, caps.NativeTools, "web_search")
-	assert.Empty(t, caps.ContextFile)
+	assert.Equal(t, "AGENTS.md", caps.ContextFile)
 }
 
 func TestCapabilities_HasTool(t *testing.T) {

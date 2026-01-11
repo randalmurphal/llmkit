@@ -63,32 +63,13 @@ type CodexCLI struct {
 	// Environment control
 	extraEnv map[string]string
 
-	// MCP configuration
-	mcpConfigPath string                     // Path to MCP config file
-	mcpServers    map[string]MCPServerConfig // Inline server definitions
+	// Note: Codex does not support --mcp-config CLI flag.
+	// MCP servers are configured via ~/.codex/config.toml only.
+	// Use WithMCPServers to programmatically add servers to config.
 }
 
-// MCPServerConfig defines an MCP server for the Codex CLI.
-// Supports stdio, http, and sse transport types.
-type MCPServerConfig struct {
-	// Type specifies the transport type: "stdio", "http", or "sse".
-	Type string `json:"type,omitempty"`
-
-	// Command is the command to run the MCP server (for stdio transport).
-	Command string `json:"command,omitempty"`
-
-	// Args are the arguments to pass to the command (for stdio transport).
-	Args []string `json:"args,omitempty"`
-
-	// Env provides environment variables for the server process.
-	Env map[string]string `json:"env,omitempty"`
-
-	// URL is the server endpoint (for http/sse transport).
-	URL string `json:"url,omitempty"`
-
-	// Headers are HTTP headers (for http/sse transport).
-	Headers []string `json:"headers,omitempty"`
-}
+// Note: Codex MCP configuration is handled via ~/.codex/config.toml,
+// not via CLI flags. Use the `codex mcp add` command or edit config.toml directly.
 
 // CodexOption configures CodexCLI.
 type CodexOption func(*CodexCLI)
@@ -204,16 +185,9 @@ func WithEnvVar(key, value string) CodexOption {
 	}
 }
 
-// WithMCPConfig sets the path to an MCP configuration file.
-func WithMCPConfig(path string) CodexOption {
-	return func(c *CodexCLI) { c.mcpConfigPath = path }
-}
-
-// WithMCPServers sets inline MCP server definitions.
-// The servers are converted to JSON and passed via temp file.
-func WithMCPServers(servers map[string]MCPServerConfig) CodexOption {
-	return func(c *CodexCLI) { c.mcpServers = servers }
-}
+// Note: Codex does not support --mcp-config CLI flag.
+// MCP servers must be configured via ~/.codex/config.toml.
+// Use `codex mcp add <server-name> -- <command>` to add servers.
 
 // CLIEvent represents a JSON event from Codex CLI output.
 type CLIEvent struct {
@@ -424,16 +398,8 @@ func (c *CodexCLI) processEvent(event *CLIEvent, content *strings.Builder) *Stre
 	return nil
 }
 
-// buildArgs constructs CLI arguments from a request.
-func (c *CodexCLI) buildArgs(req CompletionRequest) []string {
-	args, _ := c.buildArgsWithCleanup(req)
-	return args
-}
-
 // buildArgsWithCleanup constructs CLI arguments and returns a cleanup function for temp files.
 func (c *CodexCLI) buildArgsWithCleanup(req CompletionRequest) ([]string, func()) {
-	var tempFiles []string
-
 	// Use exec subcommand for non-interactive mode with JSON output
 	args := []string{"exec", "--json"}
 
@@ -481,66 +447,16 @@ func (c *CodexCLI) buildArgsWithCleanup(req CompletionRequest) ([]string, func()
 		args = append(args, "--search")
 	}
 
-	// MCP configuration
-	if c.mcpConfigPath != "" {
-		args = append(args, "--mcp-config", c.mcpConfigPath)
-	} else if len(c.mcpServers) > 0 {
-		// Create temp file with MCP config
-		tmpFile, err := c.writeMCPConfigFile()
-		if err != nil {
-			slog.Warn("failed to write MCP config file, skipping MCP servers",
-				slog.Any("error", err))
-		} else if tmpFile != "" {
-			args = append(args, "--mcp-config", tmpFile)
-			tempFiles = append(tempFiles, tmpFile)
-		}
-	}
+	// Note: MCP is configured via ~/.codex/config.toml, not CLI flags
 
 	// Build prompt from messages
 	prompt := c.buildPrompt(req)
 	args = append(args, prompt)
 
-	// Return cleanup function
-	cleanup := func() {
-		for _, f := range tempFiles {
-			os.Remove(f)
-		}
-	}
+	// Return no-op cleanup function (no temp files needed)
+	cleanup := func() {}
 
 	return args, cleanup
-}
-
-// writeMCPConfigFile creates a temporary MCP config file from inline servers.
-// Returns the path to the temp file, or empty string on error.
-func (c *CodexCLI) writeMCPConfigFile() (string, error) {
-	config := struct {
-		MCPServers map[string]MCPServerConfig `json:"mcpServers"`
-	}{
-		MCPServers: c.mcpServers,
-	}
-
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal MCP config: %w", err)
-	}
-
-	tmpFile, err := os.CreateTemp("", "codex-mcp-*.json")
-	if err != nil {
-		return "", fmt.Errorf("create temp file: %w", err)
-	}
-
-	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpFile.Name())
-		return "", fmt.Errorf("write temp file: %w", err)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpFile.Name())
-		return "", fmt.Errorf("close temp file: %w", err)
-	}
-
-	return tmpFile.Name(), nil
 }
 
 // buildPrompt constructs the prompt from messages.
@@ -685,14 +601,14 @@ func (c *CodexCLI) parseResponse(data []byte) *CompletionResponse {
 }
 
 // Resume resumes a previous session by ID.
+// Uses `codex exec resume <SESSION_ID>` for non-interactive mode.
 func (c *CodexCLI) Resume(ctx context.Context, sessionID, prompt string) (*CompletionResponse, error) {
 	start := time.Now()
 
-	args := []string{"resume", sessionID}
+	// Use exec resume for non-interactive mode with JSON output
+	args := []string{"exec", "resume", sessionID, "--json"}
 	if prompt != "" {
-		args = append(args, "--json", prompt)
-	} else {
-		args = append(args, "--json")
+		args = append(args, prompt)
 	}
 
 	cmd := exec.CommandContext(ctx, c.path, args...)
@@ -749,13 +665,14 @@ func (c *CodexCLI) Provider() string {
 // Capabilities returns Codex CLI's native capabilities.
 func (c *CodexCLI) Capabilities() Capabilities {
 	return Capabilities{
-		Streaming:   true,
-		Tools:       true,
-		MCP:         true,
-		Sessions:    true,
-		Images:      true,
-		NativeTools: []string{"file_read", "file_write", "shell", "web_search"},
-		ContextFile: "",
+		Streaming: true,
+		Tools:     true,
+		MCP:       false, // MCP requires config.toml, not supported via CLI flags
+		Sessions:  true,
+		Images:    true,
+		// Codex native tools based on documentation
+		NativeTools: []string{"shell", "apply_diff", "read_file", "list_dir", "web_search"},
+		ContextFile: "AGENTS.md",
 	}
 }
 

@@ -40,13 +40,13 @@ type Config struct {
 
 	// --- Tool Control ---
 
-	// AllowedTools limits which tools Gemini can use.
-	// Empty means all tools allowed.
+	// AllowedTools limits which tools Gemini can use (comma-separated in CLI).
+	// Tools in this list bypass the confirmation dialog.
+	// Empty means normal approval flow applies.
 	AllowedTools []string `json:"allowed_tools" yaml:"allowed_tools" mapstructure:"allowed_tools"`
 
-	// DisallowedTools explicitly blocks certain tools.
-	// Takes precedence over AllowedTools.
-	DisallowedTools []string `json:"disallowed_tools" yaml:"disallowed_tools" mapstructure:"disallowed_tools"`
+	// Note: Gemini CLI does not support a --disallowed-tools flag.
+	// Use approval modes or /policies command for tool restrictions.
 
 	// Yolo enables auto-approval of all actions (no prompts).
 	// Use with extreme caution, only in trusted environments.
@@ -190,9 +190,8 @@ func (c *Config) ToOptions() []GeminiOption {
 	if len(c.AllowedTools) > 0 {
 		opts = append(opts, WithAllowedTools(c.AllowedTools))
 	}
-	if len(c.DisallowedTools) > 0 {
-		opts = append(opts, WithDisallowedTools(c.DisallowedTools))
-	}
+	// Note: Gemini CLI does not support --disallowed-tools flag
+	// Tool restrictions should be managed via approval modes or policies
 	if c.Yolo {
 		opts = append(opts, WithYolo())
 	}

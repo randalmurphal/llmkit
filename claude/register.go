@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"strings"
 
 	"github.com/randalmurphal/llmkit/claudeconfig"
 	"github.com/randalmurphal/llmkit/provider"
@@ -140,14 +141,10 @@ func (a *claudeProviderAdapter) Complete(ctx context.Context, req provider.Reque
 		Options:      req.Options,
 	}
 
-	// Convert messages
+	// Convert messages (including multimodal content)
 	claudeReq.Messages = make([]Message, len(req.Messages))
 	for i, m := range req.Messages {
-		claudeReq.Messages[i] = Message{
-			Role:    Role(m.Role),
-			Content: m.Content,
-			Name:    m.Name,
-		}
+		claudeReq.Messages[i] = convertMessageToClaude(m)
 	}
 
 	// Convert tools
@@ -183,14 +180,10 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req provider.Request
 		Options:      req.Options,
 	}
 
-	// Convert messages
+	// Convert messages (including multimodal content)
 	claudeReq.Messages = make([]Message, len(req.Messages))
 	for i, m := range req.Messages {
-		claudeReq.Messages[i] = Message{
-			Role:    Role(m.Role),
-			Content: m.Content,
-			Name:    m.Name,
-		}
+		claudeReq.Messages[i] = convertMessageToClaude(m)
 	}
 
 	// Convert tools
@@ -237,11 +230,11 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req provider.Request
 			// Convert usage
 			if chunk.Usage != nil {
 				providerChunk.Usage = &provider.TokenUsage{
-					InputTokens:             chunk.Usage.InputTokens,
-					OutputTokens:            chunk.Usage.OutputTokens,
-					TotalTokens:             chunk.Usage.TotalTokens,
+					InputTokens:              chunk.Usage.InputTokens,
+					OutputTokens:             chunk.Usage.OutputTokens,
+					TotalTokens:              chunk.Usage.TotalTokens,
 					CacheCreationInputTokens: chunk.Usage.CacheCreationInputTokens,
-					CacheReadInputTokens:    chunk.Usage.CacheReadInputTokens,
+					CacheReadInputTokens:     chunk.Usage.CacheReadInputTokens,
 				}
 			}
 
@@ -291,11 +284,11 @@ func (a *claudeProviderAdapter) convertResponse(resp *CompletionResponse) *provi
 		CostUSD:      resp.CostUSD,
 		NumTurns:     resp.NumTurns,
 		Usage: provider.TokenUsage{
-			InputTokens:             resp.Usage.InputTokens,
-			OutputTokens:            resp.Usage.OutputTokens,
-			TotalTokens:             resp.Usage.TotalTokens,
+			InputTokens:              resp.Usage.InputTokens,
+			OutputTokens:             resp.Usage.OutputTokens,
+			TotalTokens:              resp.Usage.TotalTokens,
 			CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
-			CacheReadInputTokens:    resp.Usage.CacheReadInputTokens,
+			CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
 		},
 	}
 
@@ -336,4 +329,62 @@ func convertMCPConfig(mcp *claudeconfig.MCPConfig) map[string]MCPServerConfig {
 		}
 	}
 	return mcpServers
+}
+
+// convertMessageToClaude converts a provider.Message to claude.Message.
+// Handles multimodal content by including image file paths in the content.
+func convertMessageToClaude(m provider.Message) Message {
+	msg := Message{
+		Role: Role(m.Role),
+		Name: m.Name,
+	}
+
+	// Handle multimodal content
+	if m.IsMultimodal() {
+		// Claude CLI can read images via file paths
+		// For multimodal messages, we need to format the content appropriately
+		var parts []string
+		var imagePaths []string
+
+		for _, part := range m.ContentParts {
+			switch part.Type {
+			case "text":
+				if part.Text != "" {
+					parts = append(parts, part.Text)
+				}
+			case "image":
+				// Claude CLI supports images via file paths
+				if part.FilePath != "" {
+					imagePaths = append(imagePaths, part.FilePath)
+				}
+				// Note: ImageURL and ImageBase64 would need to be downloaded/saved
+				// to temp files for Claude CLI to read them. For now, we skip them
+				// and let the caller handle temp file creation if needed.
+			case "file":
+				if part.FilePath != "" {
+					// For file references, include as context
+					parts = append(parts, "[File: "+part.FilePath+"]")
+				}
+			}
+		}
+
+		// Combine text content
+		if len(parts) > 0 {
+			msg.Content = strings.Join(parts, "\n")
+		}
+
+		// If we have image paths, add them to Options for the CLI to handle
+		// This allows the CLI wrapper to pass them via appropriate flags
+		if len(imagePaths) > 0 && msg.Content != "" {
+			// For now, include image references in the content
+			// The Claude CLI reads images from the filesystem via the Read tool
+			for _, path := range imagePaths {
+				msg.Content += "\n[Image: " + path + "]"
+			}
+		}
+	} else {
+		msg.Content = m.Content
+	}
+
+	return msg
 }

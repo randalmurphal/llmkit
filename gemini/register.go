@@ -39,9 +39,7 @@ func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
 	if len(cfg.AllowedTools) > 0 {
 		opts = append(opts, WithAllowedTools(cfg.AllowedTools))
 	}
-	if len(cfg.DisallowedTools) > 0 {
-		opts = append(opts, WithDisallowedTools(cfg.DisallowedTools))
-	}
+	// Note: Gemini CLI does not support --disallowed-tools flag
 	if len(cfg.Env) > 0 {
 		opts = append(opts, WithEnv(cfg.Env))
 	}

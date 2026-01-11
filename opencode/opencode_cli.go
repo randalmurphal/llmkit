@@ -379,12 +379,6 @@ func (c *OpenCodeCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan
 	return ch, nil
 }
 
-// buildArgs constructs CLI arguments from a request.
-func (c *OpenCodeCLI) buildArgs(req CompletionRequest) []string {
-	args, _ := c.buildArgsWithCleanup(req)
-	return args
-}
-
 // buildArgsWithCleanup constructs CLI arguments and returns a cleanup function for temp files.
 func (c *OpenCodeCLI) buildArgsWithCleanup(req CompletionRequest) ([]string, func()) {
 	var args []string
@@ -471,7 +465,7 @@ func (c *OpenCodeCLI) buildArgsWithCleanup(req CompletionRequest) ([]string, fun
 	// Return cleanup function
 	cleanup := func() {
 		for _, f := range tempFiles {
-			os.Remove(f)
+			_ = os.Remove(f)
 		}
 	}
 
@@ -498,13 +492,13 @@ func (c *OpenCodeCLI) writeMCPConfigFile() (string, error) {
 	}
 
 	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpFile.Name())
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpFile.Name())
 		return "", fmt.Errorf("write temp file: %w", err)
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpFile.Name())
+		_ = os.Remove(tmpFile.Name())
 		return "", fmt.Errorf("close temp file: %w", err)
 	}
 
@@ -614,12 +608,26 @@ func (c *OpenCodeCLI) Provider() string {
 // Capabilities returns OpenCode's native capabilities.
 func (c *OpenCodeCLI) Capabilities() Capabilities {
 	return Capabilities{
-		Streaming:   true,
-		Tools:       true,
-		MCP:         true,
-		Sessions:    false, // OpenCode doesn't have built-in session management
-		Images:      false, // OpenCode doesn't support image inputs
-		NativeTools: []string{"write", "edit", "bash", "WebFetch", "Task"},
+		Streaming: true,
+		Tools:     true,
+		MCP:       true,
+		Sessions:  false, // OpenCode doesn't have built-in session management
+		Images:    false, // OpenCode doesn't support image inputs
+		// Native tools based on official documentation
+		NativeTools: []string{
+			"glob",        // Find files by pattern
+			"grep",        // Search file contents
+			"ls",          // List directory contents
+			"view",        // View file contents
+			"write",       // Write to files
+			"edit",        // Edit files
+			"patch",       // Apply patches to files
+			"diagnostics", // Get diagnostics information
+			"bash",        // Execute shell commands
+			"fetch",       // Retrieve data from URLs
+			"sourcegraph", // Search code across public repositories
+			"agent",       // Run sub-tasks with the AI agent
+		},
 		ContextFile: "", // No specific context file convention
 	}
 }

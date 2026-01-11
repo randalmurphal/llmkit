@@ -33,9 +33,8 @@ type GeminiCLI struct {
 	// Output control
 	outputFormat OutputFormat
 
-	// Tool control
-	allowedTools    []string
-	disallowedTools []string
+	// Tool control - comma-separated list for --allowed-tools
+	allowedTools []string
 
 	// Permissions
 	yolo bool // Auto-approve all actions (--yolo flag)
@@ -53,8 +52,9 @@ type GeminiCLI struct {
 	mcpConfigPath string                     // --mcp path
 	mcpServers    map[string]MCPServerConfig // Inline server definitions
 
-	// Sandbox configuration
-	sandbox string // "host" (default), "docker", "remote-execution"
+	// Sandbox configuration (docker, podman, or custom command)
+	// Set via GEMINI_SANDBOX env var: true/false/docker/podman/custom
+	sandbox string
 
 	// Additional directories to include
 	includeDirs []string
@@ -99,13 +99,10 @@ func WithTimeout(d time.Duration) GeminiOption {
 }
 
 // WithAllowedTools sets the allowed tools for gemini (whitelist).
+// These tools bypass the confirmation dialog.
+// Example: []string{"read_file", "write_file"}
 func WithAllowedTools(tools []string) GeminiOption {
 	return func(c *GeminiCLI) { c.allowedTools = tools }
-}
-
-// WithDisallowedTools sets the tools to disallow (blacklist).
-func WithDisallowedTools(tools []string) GeminiOption {
-	return func(c *GeminiCLI) { c.disallowedTools = tools }
 }
 
 // WithOutputFormat sets the output format (text, json, stream-json).
@@ -171,7 +168,8 @@ func WithMCPServers(servers map[string]MCPServerConfig) GeminiOption {
 }
 
 // WithSandbox sets the sandbox mode for execution.
-// Valid values: "host" (default), "docker", "remote-execution"
+// Valid values: "docker", "podman", or a custom container command.
+// Set via GEMINI_SANDBOX environment variable.
 func WithSandbox(mode string) GeminiOption {
 	return func(c *GeminiCLI) { c.sandbox = mode }
 }
@@ -206,9 +204,13 @@ type MCPServerConfig struct {
 
 // CLIResponse represents the JSON response from Gemini CLI.
 type CLIResponse struct {
-	ModelResponse string         `json:"modelResponse"`
-	TurnCount     int            `json:"turnCount"`
-	Usage         CLIUsage       `json:"usage,omitempty"`
+	// Response contains the model's text response
+	Response string `json:"response"`
+	// TurnCount is the number of turns in the conversation
+	TurnCount int `json:"turnCount"`
+	// Usage contains token usage information
+	Usage CLIUsage `json:"usage,omitempty"`
+	// ExecutedTools lists the tools that were executed
 	ExecutedTools []ExecutedTool `json:"executedTools,omitempty"`
 }
 
@@ -230,15 +232,21 @@ func (c *GeminiCLI) setupCmd(cmd *exec.Cmd) {
 		cmd.Dir = c.workdir
 	}
 
-	// Only set Env if we have custom environment variables to add.
-	// If Env is nil, the command inherits the parent process's environment.
-	if len(c.extraEnv) > 0 {
+	// Check if we need to modify environment
+	needsEnv := len(c.extraEnv) > 0 || c.sandbox != ""
+
+	if needsEnv {
 		// Start with parent environment
 		cmd.Env = os.Environ()
 
 		// Add any extra environment variables
 		for k, v := range c.extraEnv {
 			cmd.Env = setEnvVar(cmd.Env, k, v)
+		}
+
+		// Set sandbox via GEMINI_SANDBOX env var
+		if c.sandbox != "" {
+			cmd.Env = setEnvVar(cmd.Env, "GEMINI_SANDBOX", c.sandbox)
 		}
 	}
 }
@@ -392,12 +400,6 @@ func (c *GeminiCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan S
 	return ch, nil
 }
 
-// buildArgs constructs CLI arguments from a request using the client's configured format.
-func (c *GeminiCLI) buildArgs(req CompletionRequest) []string {
-	args, _ := c.buildArgsWithCleanup(req, c.outputFormat)
-	return args
-}
-
 // buildArgsWithCleanup constructs CLI arguments and returns a cleanup function for temp files.
 func (c *GeminiCLI) buildArgsWithCleanup(req CompletionRequest, format OutputFormat) ([]string, func()) {
 	var tempFiles []string
@@ -489,14 +491,9 @@ func (c *GeminiCLI) appendModelArgs(args []string, req CompletionRequest) []stri
 
 // appendToolArgs adds tool control arguments.
 func (c *GeminiCLI) appendToolArgs(args []string) []string {
-	// Allowed tools (whitelist)
-	for _, tool := range c.allowedTools {
-		args = append(args, "--allowed-tool", tool)
-	}
-
-	// Disallowed tools (blacklist)
-	for _, tool := range c.disallowedTools {
-		args = append(args, "--disallowed-tool", tool)
+	// Allowed tools (whitelist) - comma-separated list
+	if len(c.allowedTools) > 0 {
+		args = append(args, "--allowed-tools", strings.Join(c.allowedTools, ","))
 	}
 
 	return args
@@ -523,31 +520,32 @@ func (c *GeminiCLI) writeMCPConfigFile() (string, error) {
 	}
 
 	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpFile.Name())
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpFile.Name())
 		return "", fmt.Errorf("write temp file: %w", err)
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		os.Remove(tmpFile.Name())
+		_ = os.Remove(tmpFile.Name())
 		return "", fmt.Errorf("close temp file: %w", err)
 	}
 
 	return tmpFile.Name(), nil
 }
 
-// appendSandboxArgs adds sandbox configuration arguments.
+// appendSandboxArgs adds sandbox configuration via environment variable.
+// Sandbox mode is controlled via GEMINI_SANDBOX env var, not a CLI flag.
 func (c *GeminiCLI) appendSandboxArgs(args []string) []string {
-	if c.sandbox != "" && c.sandbox != "host" {
-		args = append(args, "--sandbox", c.sandbox)
-	}
+	// Sandbox is configured via environment, not CLI args
+	// The setupCmd method handles GEMINI_SANDBOX env var
 	return args
 }
 
 // appendIncludeDirsArgs adds include directory arguments.
 func (c *GeminiCLI) appendIncludeDirsArgs(args []string) []string {
-	for _, dir := range c.includeDirs {
-		args = append(args, "--include", dir)
+	// Gemini uses --include-directories with comma-separated paths
+	if len(c.includeDirs) > 0 {
+		args = append(args, "--include-directories", strings.Join(c.includeDirs, ","))
 	}
 	return args
 }
@@ -605,7 +603,7 @@ func (c *GeminiCLI) parseResponse(data []byte) *CompletionResponse {
 
 	// Try to parse as JSON response
 	var cliResp CLIResponse
-	if err := json.Unmarshal(data, &cliResp); err == nil && cliResp.ModelResponse != "" {
+	if err := json.Unmarshal(data, &cliResp); err == nil && cliResp.Response != "" {
 		return c.parseJSONResponse(&cliResp)
 	}
 
@@ -639,7 +637,7 @@ func (c *GeminiCLI) parseResponse(data []byte) *CompletionResponse {
 // parseJSONResponse extracts rich data from a JSON CLI response.
 func (c *GeminiCLI) parseJSONResponse(cliResp *CLIResponse) *CompletionResponse {
 	resp := &CompletionResponse{
-		Content:  cliResp.ModelResponse,
+		Content:  cliResp.Response,
 		NumTurns: cliResp.TurnCount,
 		Usage: TokenUsage{
 			InputTokens:  cliResp.Usage.InputTokens,
