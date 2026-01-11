@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -612,4 +613,51 @@ func TestWithEnvVar(t *testing.T) {
 	)
 	assert.Equal(t, "value1", client.extraEnv["KEY1"])
 	assert.Equal(t, "value2", client.extraEnv["KEY2"])
+}
+
+func TestResolvedPath(t *testing.T) {
+	t.Run("absolute path returned as-is", func(t *testing.T) {
+		client := NewClaudeCLI(
+			WithClaudePath("/usr/local/bin/claude"),
+			WithWorkdir("/some/workdir"),
+		)
+		assert.Equal(t, "/usr/local/bin/claude", client.resolvedPath())
+	})
+
+	t.Run("relative path without workdir returned as-is", func(t *testing.T) {
+		client := NewClaudeCLI(WithClaudePath("claude"))
+		// No workdir set, so exec will handle PATH lookup
+		assert.Equal(t, "claude", client.resolvedPath())
+	})
+
+	t.Run("relative path with workdir resolves via LookPath", func(t *testing.T) {
+		// Skip if 'ls' is not in PATH (unlikely on any Unix system)
+		lsPath, err := exec.LookPath("ls")
+		if err != nil {
+			t.Skip("ls not in PATH")
+		}
+
+		client := NewClaudeCLI(
+			WithClaudePath("ls"), // Use 'ls' as a known executable
+			WithWorkdir("/tmp"),
+		)
+		resolved := client.resolvedPath()
+		// Should resolve to absolute path
+		assert.Equal(t, lsPath, resolved)
+	})
+
+	t.Run("nonexistent binary falls back to original path", func(t *testing.T) {
+		client := NewClaudeCLI(
+			WithClaudePath("definitely-not-a-real-binary-xyz"),
+			WithWorkdir("/tmp"),
+		)
+		// Should fall back to original since LookPath will fail
+		assert.Equal(t, "definitely-not-a-real-binary-xyz", client.resolvedPath())
+	})
+
+	t.Run("empty workdir allows relative path", func(t *testing.T) {
+		client := NewClaudeCLI(WithClaudePath("claude"))
+		// Empty workdir means exec will do proper PATH lookup
+		assert.Equal(t, "claude", client.resolvedPath())
+	})
 }

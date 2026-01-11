@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -351,12 +352,36 @@ func setEnvVar(env []string, key, value string) []string {
 	return append(env, prefix+value)
 }
 
+// resolvedPath returns the absolute path to the claude binary.
+// This is necessary because when cmd.Dir is set, Go's exec doesn't do PATH lookup
+// for relative executable names like "claude".
+func (c *ClaudeCLI) resolvedPath() string {
+	// If already absolute, use as-is
+	if filepath.IsAbs(c.path) {
+		return c.path
+	}
+
+	// If no workdir set, exec will do PATH lookup correctly
+	if c.workdir == "" {
+		return c.path
+	}
+
+	// Resolve relative path to absolute via PATH lookup
+	absPath, err := exec.LookPath(c.path)
+	if err != nil {
+		// Fall back to original path - error will surface when command runs
+		slog.Debug("could not resolve executable path", "path", c.path, "error", err)
+		return c.path
+	}
+	return absPath
+}
+
 // Complete implements Client.
 func (c *ClaudeCLI) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	start := time.Now()
 
 	args := c.buildArgs(req)
-	cmd := exec.CommandContext(ctx, c.path, args...)
+	cmd := exec.CommandContext(ctx, c.resolvedPath(), args...)
 	c.setupCmd(cmd)
 
 	var stdout, stderr bytes.Buffer
@@ -385,7 +410,7 @@ func (c *ClaudeCLI) Complete(ctx context.Context, req CompletionRequest) (*Compl
 func (c *ClaudeCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error) {
 	// Force stream-json output for streaming
 	args := c.buildArgsWithFormat(req, OutputFormatStreamJSON)
-	cmd := exec.CommandContext(ctx, c.path, args...)
+	cmd := exec.CommandContext(ctx, c.resolvedPath(), args...)
 	c.setupCmd(cmd)
 	cmd.Stdin = nil // Use /dev/null to prevent TTY/raw mode errors in containers
 
