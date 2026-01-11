@@ -10,11 +10,12 @@ import (
 
 // Settings represents Claude Code's settings.json structure.
 type Settings struct {
-	Env            map[string]string    `json:"env,omitempty"`
-	Hooks          map[string][]Hook    `json:"hooks,omitempty"`
-	EnabledPlugins map[string]bool      `json:"enabledPlugins,omitempty"`
-	StatusLine     *StatusLine          `json:"statusLine,omitempty"`
-	Extensions     map[string]any       `json:"extensions,omitempty"` // For custom extensions like "orc"
+	Env            map[string]string `json:"env,omitempty"`
+	Hooks          map[string][]Hook `json:"hooks,omitempty"`
+	EnabledPlugins map[string]bool   `json:"enabledPlugins,omitempty"`
+	StatusLine     *StatusLine       `json:"statusLine,omitempty"`
+	Permissions    *ToolPermissions  `json:"permissions,omitempty"`    // Native Claude Code permissions format
+	Extensions     map[string]any    `json:"extensions,omitempty"`     // For custom extensions like "orc"
 }
 
 // Hook represents a hook entry in settings.json.
@@ -115,6 +116,13 @@ func (s *Settings) Clone() *Settings {
 		}
 	}
 
+	if s.Permissions != nil {
+		clone.Permissions = &ToolPermissions{
+			Allow: append([]string(nil), s.Permissions.Allow...),
+			Deny:  append([]string(nil), s.Permissions.Deny...),
+		}
+	}
+
 	maps.Copy(clone.Extensions, s.Extensions)
 
 	return clone
@@ -152,6 +160,14 @@ func (s *Settings) Merge(project *Settings) *Settings {
 		result.StatusLine = &StatusLine{
 			Type:    project.StatusLine.Type,
 			Command: project.StatusLine.Command,
+		}
+	}
+
+	// Permissions: project overrides global
+	if project.Permissions != nil {
+		result.Permissions = &ToolPermissions{
+			Allow: append([]string(nil), project.Permissions.Allow...),
+			Deny:  append([]string(nil), project.Permissions.Deny...),
 		}
 	}
 
@@ -330,51 +346,21 @@ func GlobalSettingsPath() (string, error) {
 	return filepath.Join(home, ".claude", "settings.json"), nil
 }
 
-// OrcExtension represents the orc-specific settings stored in extensions["orc"].
-type OrcExtension struct {
-	ToolPermissions *ToolPermissions `json:"tool_permissions,omitempty"`
-}
-
-// GetToolPermissions extracts tool permissions from settings.
-// It first checks extensions["tool_permissions"], then extensions["orc"].tool_permissions.
+// GetToolPermissions returns tool permissions from settings.
 func GetToolPermissions(settings *Settings) (*ToolPermissions, error) {
 	if settings == nil {
 		return nil, nil
 	}
-
-	// Try direct tool_permissions extension first
-	var perms ToolPermissions
-	if err := settings.GetExtension("tool_permissions", &perms); err != nil {
-		return nil, fmt.Errorf("get tool_permissions extension: %w", err)
-	}
-	if !perms.IsEmpty() {
-		return &perms, nil
-	}
-
-	// Try orc extension
-	var orcExt OrcExtension
-	if err := settings.GetExtension("orc", &orcExt); err != nil {
-		return nil, fmt.Errorf("get orc extension: %w", err)
-	}
-	if orcExt.ToolPermissions != nil && !orcExt.ToolPermissions.IsEmpty() {
-		return orcExt.ToolPermissions, nil
-	}
-
-	return nil, nil
+	return settings.Permissions, nil
 }
 
-// SetToolPermissions stores tool permissions in the orc extension.
+// SetToolPermissions stores tool permissions in the native Permissions field.
+// This uses Claude Code's actual settings format.
 func SetToolPermissions(settings *Settings, perms *ToolPermissions) error {
 	if settings == nil {
 		return fmt.Errorf("settings is nil")
 	}
 
-	// Get existing orc extension
-	var orcExt OrcExtension
-	_ = settings.GetExtension("orc", &orcExt) // Ignore error, use empty if not exists
-
-	orcExt.ToolPermissions = perms
-	settings.SetExtension("orc", orcExt)
-
+	settings.Permissions = perms
 	return nil
 }
