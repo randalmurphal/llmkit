@@ -1,4 +1,4 @@
-package claude
+package opencode
 
 import (
 	"encoding/json"
@@ -13,7 +13,8 @@ type CompletionRequest struct {
 	// Messages is the conversation history to send to the model.
 	Messages []Message `json:"messages"`
 
-	// Model specifies which model to use (e.g., "claude-sonnet-4-20250514").
+	// Model specifies which model to use (provider-specific).
+	// OpenCode supports 75+ providers, model names vary by provider.
 	Model string `json:"model,omitempty"`
 
 	// MaxTokens limits the response length.
@@ -62,11 +63,6 @@ type CompletionResponse struct {
 	Model        string        `json:"model"`
 	FinishReason string        `json:"finish_reason"`
 	Duration     time.Duration `json:"duration"`
-
-	// Claude CLI specific fields (populated when using JSON output)
-	SessionID string  `json:"session_id,omitempty"`
-	CostUSD   float64 `json:"cost_usd,omitempty"`
-	NumTurns  int     `json:"num_turns,omitempty"`
 }
 
 // ToolCall represents a tool invocation request from the LLM.
@@ -81,10 +77,6 @@ type TokenUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
 	TotalTokens  int `json:"total_tokens"`
-
-	// Cache-related tokens (Claude specific)
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // Add calculates total tokens and adds to existing usage.
@@ -92,8 +84,6 @@ func (u *TokenUsage) Add(other TokenUsage) {
 	u.InputTokens += other.InputTokens
 	u.OutputTokens += other.OutputTokens
 	u.TotalTokens += other.TotalTokens
-	u.CacheCreationInputTokens += other.CacheCreationInputTokens
-	u.CacheReadInputTokens += other.CacheReadInputTokens
 }
 
 // StreamChunk is a piece of a streaming response.
@@ -126,7 +116,7 @@ type Capabilities struct {
 	// NativeTools lists the provider's built-in tools by name.
 	NativeTools []string `json:"native_tools"`
 
-	// ContextFile is the filename for project-specific context (e.g., "CLAUDE.md").
+	// ContextFile is the filename for project-specific context.
 	ContextFile string `json:"context_file,omitempty"`
 }
 

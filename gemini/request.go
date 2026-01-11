@@ -1,4 +1,4 @@
-package claude
+package gemini
 
 import (
 	"encoding/json"
@@ -13,7 +13,7 @@ type CompletionRequest struct {
 	// Messages is the conversation history to send to the model.
 	Messages []Message `json:"messages"`
 
-	// Model specifies which model to use (e.g., "claude-sonnet-4-20250514").
+	// Model specifies which model to use (e.g., "gemini-2.5-pro").
 	Model string `json:"model,omitempty"`
 
 	// MaxTokens limits the response length.
@@ -34,6 +34,32 @@ type Message struct {
 	Role    Role   `json:"role"`
 	Content string `json:"content"`
 	Name    string `json:"name,omitempty"` // For tool results
+
+	// ContentParts enables multimodal content (text + images).
+	// If set, takes precedence over Content.
+	ContentParts []ContentPart `json:"content_parts,omitempty"`
+}
+
+// ContentPart represents a piece of multimodal content.
+type ContentPart struct {
+	// Type indicates the content type: "text", "image", "file"
+	Type string `json:"type"`
+
+	// Text content (when Type == "text")
+	Text string `json:"text,omitempty"`
+
+	// ImageURL for remote images (when Type == "image")
+	ImageURL string `json:"image_url,omitempty"`
+
+	// ImageBase64 for inline images (when Type == "image")
+	// Format: base64-encoded image data
+	ImageBase64 string `json:"image_base64,omitempty"`
+
+	// MediaType specifies the MIME type (e.g., "image/png", "image/jpeg")
+	MediaType string `json:"media_type,omitempty"`
+
+	// FilePath for local file references (when Type == "file")
+	FilePath string `json:"file_path,omitempty"`
 }
 
 // Role identifies the message sender.
@@ -63,10 +89,8 @@ type CompletionResponse struct {
 	FinishReason string        `json:"finish_reason"`
 	Duration     time.Duration `json:"duration"`
 
-	// Claude CLI specific fields (populated when using JSON output)
-	SessionID string  `json:"session_id,omitempty"`
-	CostUSD   float64 `json:"cost_usd,omitempty"`
-	NumTurns  int     `json:"num_turns,omitempty"`
+	// Gemini CLI specific fields
+	NumTurns int `json:"num_turns,omitempty"`
 }
 
 // ToolCall represents a tool invocation request from the LLM.
@@ -81,10 +105,6 @@ type TokenUsage struct {
 	InputTokens  int `json:"input_tokens"`
 	OutputTokens int `json:"output_tokens"`
 	TotalTokens  int `json:"total_tokens"`
-
-	// Cache-related tokens (Claude specific)
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // Add calculates total tokens and adds to existing usage.
@@ -92,8 +112,6 @@ func (u *TokenUsage) Add(other TokenUsage) {
 	u.InputTokens += other.InputTokens
 	u.OutputTokens += other.OutputTokens
 	u.TotalTokens += other.TotalTokens
-	u.CacheCreationInputTokens += other.CacheCreationInputTokens
-	u.CacheReadInputTokens += other.CacheReadInputTokens
 }
 
 // StreamChunk is a piece of a streaming response.
@@ -105,8 +123,7 @@ type StreamChunk struct {
 	Error     error       `json:"-"` // Non-nil if streaming failed
 }
 
-// Capabilities describes what a provider natively supports.
-// This type mirrors provider.Capabilities for API compatibility.
+// Capabilities describes what this provider natively supports.
 type Capabilities struct {
 	// Streaming indicates if the provider supports streaming responses.
 	Streaming bool `json:"streaming"`
@@ -126,7 +143,7 @@ type Capabilities struct {
 	// NativeTools lists the provider's built-in tools by name.
 	NativeTools []string `json:"native_tools"`
 
-	// ContextFile is the filename for project-specific context (e.g., "CLAUDE.md").
+	// ContextFile is the filename for project-specific context (e.g., "GEMINI.md").
 	ContextFile string `json:"context_file,omitempty"`
 }
 

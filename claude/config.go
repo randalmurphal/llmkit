@@ -138,15 +138,26 @@ type Config struct {
 }
 
 // MCPServerConfig defines an MCP server for the Claude CLI.
+// Supports stdio, http, and sse transport types.
 type MCPServerConfig struct {
-	// Command is the command to run the MCP server.
-	Command string `json:"command" yaml:"command" mapstructure:"command"`
+	// Type specifies the transport type: "stdio", "http", or "sse".
+	// If empty, defaults to "stdio" for servers with Command set.
+	Type string `json:"type,omitempty" yaml:"type,omitempty" mapstructure:"type"`
 
-	// Args are the arguments to pass to the command.
-	Args []string `json:"args" yaml:"args" mapstructure:"args"`
+	// Command is the command to run the MCP server (for stdio transport).
+	Command string `json:"command,omitempty" yaml:"command,omitempty" mapstructure:"command"`
+
+	// Args are the arguments to pass to the command (for stdio transport).
+	Args []string `json:"args,omitempty" yaml:"args,omitempty" mapstructure:"args"`
 
 	// Env provides environment variables for the server process.
 	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty" mapstructure:"env"`
+
+	// URL is the server endpoint (for http/sse transport).
+	URL string `json:"url,omitempty" yaml:"url,omitempty" mapstructure:"url"`
+
+	// Headers are HTTP headers (for http/sse transport).
+	Headers []string `json:"headers,omitempty" yaml:"headers,omitempty" mapstructure:"headers"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.

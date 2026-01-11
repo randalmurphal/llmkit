@@ -799,3 +799,30 @@ type streamDelta struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
+
+// Provider returns the provider name.
+// Implements provider.Client.
+func (c *ClaudeCLI) Provider() string {
+	return "claude"
+}
+
+// Capabilities returns Claude Code's native capabilities.
+// Implements provider.Client.
+func (c *ClaudeCLI) Capabilities() Capabilities {
+	return Capabilities{
+		Streaming:   true,
+		Tools:       true,
+		MCP:         true,
+		Sessions:    true,
+		Images:      true,
+		NativeTools: []string{"Read", "Write", "Edit", "Glob", "Grep", "Bash", "Task", "TodoWrite", "WebFetch", "WebSearch", "AskUserQuestion", "NotebookEdit", "LSP", "Skill", "EnterPlanMode", "ExitPlanMode", "KillShell", "TaskOutput"},
+		ContextFile: "CLAUDE.md",
+	}
+}
+
+// Close releases any resources held by the client.
+// For ClaudeCLI, this is a no-op as each command is independent.
+// Implements provider.Client.
+func (c *ClaudeCLI) Close() error {
+	return nil
+}
