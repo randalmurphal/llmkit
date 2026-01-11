@@ -121,6 +121,29 @@ type Config struct {
 	// Local:
 	//   - "backend": "ollama" | "llama.cpp" | "vllm"
 	//   - "sidecar_path": string
+	//
+	// Continue (Continue.dev CLI):
+	//   - "path": string (path to cn binary)
+	//   - "config_path": string (path to config.yaml)
+	//   - "api_key": string (CONTINUE_API_KEY)
+	//   - "rule": string (rule from Mission Control)
+	//   - "verbose": bool (enable logging)
+	//   - "resume": bool (resume previous session)
+	//   - "allowed_tools": []string (--allow patterns)
+	//   - "ask_tools": []string (--ask patterns)
+	//   - "excluded_tools": []string (--exclude tools)
+	//
+	// Aider:
+	//   - "path": string (path to aider binary)
+	//   - "ollama_api_base": string (OLLAMA_API_BASE)
+	//   - "edit_format": string (diff, whole, etc.)
+	//   - "no_git": bool (disable git)
+	//   - "no_auto_commits": bool (disable auto-commits)
+	//   - "no_stream": bool (disable streaming)
+	//   - "dry_run": bool (preview without modifying)
+	//   - "yes_always": bool (auto-confirm all prompts)
+	//   - "editable_files": []string (--file flags)
+	//   - "read_only_files": []string (--read flags)
 	Options map[string]any `json:"options" yaml:"options" mapstructure:"options"`
 }
 
