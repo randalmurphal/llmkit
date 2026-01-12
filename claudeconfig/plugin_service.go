@@ -216,27 +216,20 @@ func (s *PluginService) Disable(name string, scope PluginScope) error {
 }
 
 // Uninstall removes a plugin from the specified scope.
+// Uses discovery to find the plugin's actual path (supports cache directory format).
 func (s *PluginService) Uninstall(name string, scope PluginScope) error {
-	var dir string
-	switch scope {
-	case PluginScopeGlobal:
-		dir = s.globalDir
-	case PluginScopeProject:
-		if s.projectRoot == "" {
-			return fmt.Errorf("no project root configured")
-		}
-		dir = ProjectPluginsDir(s.projectRoot)
-	default:
-		return fmt.Errorf("unknown scope: %s", scope)
+	// Use Get to find the plugin (handles cache directory format)
+	plugin, err := s.Get(name, scope)
+	if err != nil {
+		return err
 	}
 
-	pluginPath := filepath.Join(dir, name)
-	if !dirExists(pluginPath) {
-		return fmt.Errorf("plugin not found: %s", name)
+	if plugin.Path == "" {
+		return fmt.Errorf("plugin has no path: %s", name)
 	}
 
 	// Remove the plugin directory
-	if err := os.RemoveAll(pluginPath); err != nil {
+	if err := os.RemoveAll(plugin.Path); err != nil {
 		return fmt.Errorf("remove plugin directory: %w", err)
 	}
 
