@@ -35,8 +35,10 @@ type Plugin struct {
 	HasHooks    bool `json:"-"`
 	HasScripts  bool `json:"-"`
 
-	// Discovered commands
-	Commands []PluginCommand `json:"-"`
+	// Discovered resources
+	Commands   []PluginCommand   `json:"-"`
+	MCPServers []PluginMCPServer `json:"-"`
+	Hooks      []PluginHook      `json:"-"`
 }
 
 // PluginAuthor represents the author information in plugin.json.
@@ -75,6 +77,27 @@ type PluginCommand struct {
 	Description  string `json:"description"`   // From YAML frontmatter
 	ArgumentHint string `json:"argument_hint"` // From YAML frontmatter
 	FilePath     string `json:"file_path"`     // Full path to command file
+}
+
+// PluginMCPServer represents an MCP server provided by a plugin.
+// Parsed from .mcp.json in the plugin directory.
+type PluginMCPServer struct {
+	Name    string            `json:"name"`              // Server name (key in .mcp.json)
+	Command string            `json:"command"`           // Command to run
+	Args    []string          `json:"args,omitempty"`    // Command arguments
+	Env     map[string]string `json:"env,omitempty"`     // Environment variables
+	URL     string            `json:"url,omitempty"`     // URL for HTTP-based servers
+	Type    string            `json:"type,omitempty"`    // Server type (stdio, sse, http)
+}
+
+// PluginHook represents a hook provided by a plugin.
+// Parsed from hooks/hooks.json in the plugin directory.
+type PluginHook struct {
+	Event       string   `json:"event"`                 // Hook event (Stop, PreToolUse, etc.)
+	Type        string   `json:"type"`                  // Hook type (command)
+	Command     string   `json:"command"`               // Command to execute
+	Matcher     string   `json:"matcher,omitempty"`     // Tool matcher pattern
+	Description string   `json:"description,omitempty"` // Hook description
 }
 
 // Info returns summary information for this plugin.
@@ -161,6 +184,20 @@ func ParsePluginJSON(path string) (*Plugin, error) {
 		}
 	}
 
+	// Discover MCP servers from .mcp.json
+	mcpServers, err := discoverPluginMCPServers(dirPath)
+	if err == nil {
+		plugin.MCPServers = mcpServers
+	}
+
+	// Discover hooks from hooks/hooks.json
+	if plugin.HasHooks {
+		hooks, err := discoverPluginHooks(filepath.Join(dirPath, "hooks"))
+		if err == nil {
+			plugin.Hooks = hooks
+		}
+	}
+
 	return plugin, nil
 }
 
@@ -237,6 +274,121 @@ func parseCommandFrontmatter(path string) (description, argumentHint string) {
 	}
 
 	return description, argumentHint
+}
+
+// discoverPluginMCPServers parses .mcp.json from the plugin directory.
+func discoverPluginMCPServers(pluginDir string) ([]PluginMCPServer, error) {
+	mcpPath := filepath.Join(pluginDir, ".mcp.json")
+	if !fileExists(mcpPath) {
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(mcpPath)
+	if err != nil {
+		return nil, fmt.Errorf("read .mcp.json: %w", err)
+	}
+
+	// .mcp.json format: {"server-name": {"command": "...", "args": [...]}}
+	var mcpConfig map[string]struct {
+		Command string            `json:"command"`
+		Args    []string          `json:"args"`
+		Env     map[string]string `json:"env"`
+		URL     string            `json:"url"`
+		Type    string            `json:"type"`
+	}
+
+	if err := json.Unmarshal(data, &mcpConfig); err != nil {
+		return nil, fmt.Errorf("parse .mcp.json: %w", err)
+	}
+
+	var servers []PluginMCPServer
+	for name, config := range mcpConfig {
+		server := PluginMCPServer{
+			Name:    name,
+			Command: config.Command,
+			Args:    config.Args,
+			Env:     config.Env,
+			URL:     config.URL,
+			Type:    config.Type,
+		}
+		// Infer type if not specified
+		if server.Type == "" {
+			if server.URL != "" {
+				server.Type = "sse"
+			} else {
+				server.Type = "stdio"
+			}
+		}
+		servers = append(servers, server)
+	}
+
+	// Sort by name for consistent ordering
+	sort.Slice(servers, func(i, j int) bool {
+		return servers[i].Name < servers[j].Name
+	})
+
+	return servers, nil
+}
+
+// discoverPluginHooks parses hooks/hooks.json from the plugin directory.
+func discoverPluginHooks(hooksDir string) ([]PluginHook, error) {
+	hooksPath := filepath.Join(hooksDir, "hooks.json")
+	if !fileExists(hooksPath) {
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(hooksPath)
+	if err != nil {
+		return nil, fmt.Errorf("read hooks.json: %w", err)
+	}
+
+	// hooks.json format:
+	// {
+	//   "description": "...",
+	//   "hooks": {
+	//     "Stop": [{"hooks": [{"type": "command", "command": "..."}]}],
+	//     "PreToolUse": [{"hooks": [...], "matcher": "Edit|Write"}]
+	//   }
+	// }
+	var hooksConfig struct {
+		Description string `json:"description"`
+		Hooks       map[string][]struct {
+			Hooks []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+			Matcher string `json:"matcher"`
+		} `json:"hooks"`
+	}
+
+	if err := json.Unmarshal(data, &hooksConfig); err != nil {
+		return nil, fmt.Errorf("parse hooks.json: %w", err)
+	}
+
+	var hooks []PluginHook
+	for event, hookConfigs := range hooksConfig.Hooks {
+		for _, config := range hookConfigs {
+			for _, hook := range config.Hooks {
+				hooks = append(hooks, PluginHook{
+					Event:       event,
+					Type:        hook.Type,
+					Command:     hook.Command,
+					Matcher:     config.Matcher,
+					Description: hooksConfig.Description,
+				})
+			}
+		}
+	}
+
+	// Sort by event then command for consistent ordering
+	sort.Slice(hooks, func(i, j int) bool {
+		if hooks[i].Event != hooks[j].Event {
+			return hooks[i].Event < hooks[j].Event
+		}
+		return hooks[i].Command < hooks[j].Command
+	})
+
+	return hooks, nil
 }
 
 // DiscoverPlugins finds all plugins in the given .claude directory.
