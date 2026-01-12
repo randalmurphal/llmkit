@@ -15,14 +15,44 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// StringOrArray is a custom type that can unmarshal from either a string
+// (comma-separated) or a YAML array.
+type StringOrArray []string
+
+// UnmarshalYAML implements yaml.Unmarshaler to handle both string and array formats.
+func (s *StringOrArray) UnmarshalYAML(value *yaml.Node) error {
+	// Try as array first
+	var arr []string
+	if err := value.Decode(&arr); err == nil {
+		*s = arr
+		return nil
+	}
+
+	// Try as comma-separated string
+	var str string
+	if err := value.Decode(&str); err == nil {
+		parts := strings.Split(str, ",")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		*s = result
+		return nil
+	}
+
+	return errors.New("allowed-tools must be a string or array")
+}
+
 // Skill represents a Claude Code skill parsed from a SKILL.md file.
 // The file format uses YAML frontmatter followed by markdown content.
 type Skill struct {
 	// Frontmatter fields (from YAML between --- delimiters)
-	Name         string   `yaml:"name" json:"name"`
-	Description  string   `yaml:"description" json:"description"`
-	AllowedTools []string `yaml:"allowed-tools,omitempty" json:"allowed_tools,omitempty"`
-	Version      string   `yaml:"version,omitempty" json:"version,omitempty"`
+	Name         string        `yaml:"name" json:"name"`
+	Description  string        `yaml:"description" json:"description"`
+	AllowedTools StringOrArray `yaml:"allowed-tools,omitempty" json:"allowed_tools,omitempty"`
+	Version      string        `yaml:"version,omitempty" json:"version,omitempty"`
 
 	// Content is the markdown body after the frontmatter
 	Content string `yaml:"-" json:"content"`
