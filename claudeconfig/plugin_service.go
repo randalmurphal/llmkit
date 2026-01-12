@@ -120,33 +120,22 @@ func (s *PluginService) discoverWithScope(dir string, scope PluginScope, setting
 }
 
 // Get returns a specific plugin by name and scope.
+// Uses DiscoverPlugins to find plugins in both simple and cache directory formats.
 func (s *PluginService) Get(name string, scope PluginScope) (*Plugin, error) {
-	var dir string
+	var claudeDir string
 	switch scope {
 	case PluginScopeGlobal:
-		dir = s.globalDir
+		claudeDir = filepath.Dir(s.globalDir) // .claude directory
 	case PluginScopeProject:
 		if s.projectRoot == "" {
 			return nil, fmt.Errorf("no project root configured")
 		}
-		dir = ProjectPluginsDir(s.projectRoot)
+		claudeDir = filepath.Join(s.projectRoot, ".claude")
 	default:
 		return nil, fmt.Errorf("unknown scope: %s", scope)
 	}
 
-	pluginPath := filepath.Join(dir, name)
-	if !dirExists(pluginPath) {
-		return nil, fmt.Errorf("plugin not found: %s", name)
-	}
-
-	plugin, err := ParsePluginJSON(pluginPath)
-	if err != nil {
-		return nil, fmt.Errorf("parse plugin: %w", err)
-	}
-
-	plugin.Scope = scope
-
-	// Load enabled status from settings
+	// Load settings for enabled status
 	var settings *Settings
 	if scope == PluginScopeProject && s.projectRoot != "" {
 		settings, _ = LoadProjectSettings(s.projectRoot)
@@ -154,13 +143,20 @@ func (s *PluginService) Get(name string, scope PluginScope) (*Plugin, error) {
 		settings, _ = LoadGlobalSettings()
 	}
 
-	if settings != nil && settings.EnabledPlugins != nil {
-		if enabled, ok := settings.EnabledPlugins[plugin.Name]; ok {
-			plugin.Enabled = enabled
+	// Discover all plugins and find by name
+	plugins, err := DiscoverPluginsWithEnabled(claudeDir, settings)
+	if err != nil {
+		return nil, fmt.Errorf("discover plugins: %w", err)
+	}
+
+	for _, p := range plugins {
+		if p.Name == name {
+			p.Scope = scope
+			return p, nil
 		}
 	}
 
-	return plugin, nil
+	return nil, fmt.Errorf("plugin not found: %s", name)
 }
 
 // SetEnabled enables or disables a plugin by updating settings.json.

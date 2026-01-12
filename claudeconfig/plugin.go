@@ -240,7 +240,9 @@ func parseCommandFrontmatter(path string) (description, argumentHint string) {
 }
 
 // DiscoverPlugins finds all plugins in the given .claude directory.
-// It searches in the plugins/ subdirectory.
+// It searches in multiple locations:
+// 1. plugins/{name}/.claude-plugin/plugin.json (simple format)
+// 2. plugins/cache/{marketplace}/{name}/{version}/.claude-plugin/plugin.json (Claude Code format)
 func DiscoverPlugins(claudeDir string) ([]*Plugin, error) {
 	pluginsDir := filepath.Join(claudeDir, "plugins")
 
@@ -249,32 +251,99 @@ func DiscoverPlugins(claudeDir string) ([]*Plugin, error) {
 		return nil, nil // No plugins directory, return empty list
 	}
 
+	var plugins []*Plugin
+	seen := make(map[string]bool) // Track seen plugins by name to avoid duplicates
+
+	// 1. Scan direct plugins (plugins/{name}/.claude-plugin/plugin.json)
 	entries, err := os.ReadDir(pluginsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read plugins directory: %w", err)
 	}
 
-	var plugins []*Plugin
 	for _, entry := range entries {
-		if !entry.IsDir() {
+		if !entry.IsDir() || entry.Name() == "cache" {
 			continue
 		}
 
 		pluginPath := filepath.Join(pluginsDir, entry.Name())
 		pluginJSONPath := filepath.Join(pluginPath, ".claude-plugin", "plugin.json")
 
-		// Check if plugin.json exists in this directory
 		if !fileExists(pluginJSONPath) {
 			continue
 		}
 
 		plugin, err := ParsePluginJSON(pluginPath)
 		if err != nil {
-			// Log warning but continue discovering other plugins
 			continue
 		}
 
-		plugins = append(plugins, plugin)
+		if !seen[plugin.Name] {
+			plugins = append(plugins, plugin)
+			seen[plugin.Name] = true
+		}
+	}
+
+	// 2. Scan cache directory (plugins/cache/{marketplace}/{name}/{version}/.claude-plugin/plugin.json)
+	cacheDir := filepath.Join(pluginsDir, "cache")
+	if dirExists(cacheDir) {
+		marketplaces, err := os.ReadDir(cacheDir)
+		if err == nil {
+			for _, marketplace := range marketplaces {
+				if !marketplace.IsDir() {
+					continue
+				}
+
+				marketplacePath := filepath.Join(cacheDir, marketplace.Name())
+				pluginDirs, err := os.ReadDir(marketplacePath)
+				if err != nil {
+					continue
+				}
+
+				for _, pluginDir := range pluginDirs {
+					if !pluginDir.IsDir() {
+						continue
+					}
+
+					// Scan version directories
+					pluginPath := filepath.Join(marketplacePath, pluginDir.Name())
+					versions, err := os.ReadDir(pluginPath)
+					if err != nil {
+						continue
+					}
+
+					// Find the latest version (or any version with plugin.json)
+					for _, version := range versions {
+						if !version.IsDir() {
+							continue
+						}
+
+						versionPath := filepath.Join(pluginPath, version.Name())
+						pluginJSONPath := filepath.Join(versionPath, ".claude-plugin", "plugin.json")
+
+						if !fileExists(pluginJSONPath) {
+							continue
+						}
+
+						plugin, err := ParsePluginJSON(versionPath)
+						if err != nil {
+							continue
+						}
+
+						// Set version from directory name if not in plugin.json
+						if plugin.Version == "" {
+							plugin.Version = version.Name()
+						}
+
+						// Only add if not already seen (first version found wins)
+						if !seen[plugin.Name] {
+							plugins = append(plugins, plugin)
+							seen[plugin.Name] = true
+						}
+						break // Only take first valid version found
+					}
+				}
+			}
+		}
 	}
 
 	// Sort by name for consistent ordering
