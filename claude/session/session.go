@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -114,6 +115,12 @@ func (s *session) start(ctx context.Context) error {
 	// Build command arguments
 	args := s.buildArgs()
 	s.cmd = exec.CommandContext(procCtx, s.config.claudePath, args...)
+
+	// Create a new process group so we can kill all child processes (MCP servers,
+	// browsers, etc.) when the session closes. Without this, child processes become
+	// orphans and accumulate, eventually exhausting system resources.
+	s.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	s.setupEnv()
 
 	// Create pipes
@@ -437,9 +444,11 @@ func (s *session) Close() error {
 		case <-s.done:
 			// Process killed successfully
 		case <-time.After(2 * time.Second):
-			// Still not dead, try direct process kill as last resort
+			// Still not dead, kill entire process group as last resort.
+			// Using negative PID kills all processes in the group (Claude CLI +
+			// MCP servers + browsers), preventing orphaned child processes.
 			if s.cmd != nil && s.cmd.Process != nil {
-				_ = s.cmd.Process.Kill()
+				_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
 			}
 			// Final wait with hard timeout
 			select {
