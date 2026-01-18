@@ -63,15 +63,15 @@ func TestClaudeCLI_BuildArgs(t *testing.T) {
 			contains: []string{"--model"},
 		},
 		{
-			name:   "with max tokens",
+			name:   "max tokens ignored (CLI doesn't support it)",
 			client: claude.NewClaudeCLI(),
 			req: claude.CompletionRequest{
-				MaxTokens: 1000,
+				MaxTokens: 1000, // Should be silently ignored - CLI doesn't have this flag
 				Messages: []claude.Message{
 					{Role: claude.RoleUser, Content: "Test"},
 				},
 			},
-			contains: []string{"--max-tokens", "1000"},
+			contains: []string{"-p"}, // Just verify basic args, no --max-tokens
 		},
 		{
 			name:   "multiple messages",

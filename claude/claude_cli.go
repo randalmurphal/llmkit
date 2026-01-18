@@ -598,20 +598,16 @@ func (c *ClaudeCLI) appendModelArgs(args []string, req CompletionRequest) []stri
 		args = append(args, "--fallback-model", c.fallbackModel)
 	}
 
-	// Max tokens
-	if req.MaxTokens > 0 {
-		args = append(args, "--max-tokens", fmt.Sprintf("%d", req.MaxTokens))
-	}
+	// NOTE: MaxTokens is not supported by Claude CLI - it's an agentic interface
+	// that doesn't expose token limits. The field is silently ignored.
+	// Use maxBudgetUSD for cost control instead.
 
-	// Budget limit
+	// Budget limit (only flag available for limiting Claude CLI usage)
 	if c.maxBudgetUSD > 0 {
 		args = append(args, "--max-budget-usd", fmt.Sprintf("%.6f", c.maxBudgetUSD))
 	}
 
-	// Max turns
-	if c.maxTurns > 0 {
-		args = append(args, "--max-turns", fmt.Sprintf("%d", c.maxTurns))
-	}
+	// NOTE: maxTurns is not supported by Claude CLI - removed non-existent flag
 
 	return args
 }

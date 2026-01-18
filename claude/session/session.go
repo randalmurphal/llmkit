@@ -224,9 +224,8 @@ func (s *session) buildArgs() []string {
 	if s.config.maxBudgetUSD > 0 {
 		args = append(args, "--max-budget-usd", fmt.Sprintf("%.6f", s.config.maxBudgetUSD))
 	}
-	if s.config.maxTurns > 0 {
-		args = append(args, "--max-turns", fmt.Sprintf("%d", s.config.maxTurns))
-	}
+	// NOTE: maxTurns is not supported by Claude CLI - the flag doesn't exist.
+	// The config value is silently ignored.
 
 	return args
 }

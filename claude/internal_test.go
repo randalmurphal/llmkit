@@ -52,13 +52,13 @@ func TestBuildArgs(t *testing.T) {
 			contains: []string{"--model"}, // Should have model flag
 		},
 		{
-			name:   "with max tokens",
+			name:   "max tokens ignored (CLI doesn't support it)",
 			client: NewClaudeCLI(),
 			req: CompletionRequest{
-				MaxTokens: 1000,
+				MaxTokens: 1000, // Silently ignored - CLI doesn't have this flag
 				Messages:  []Message{{Role: RoleUser, Content: "Test"}},
 			},
-			contains: []string{"--max-tokens", "1000"},
+			contains: []string{"-p"}, // Just verify basic args, no --max-tokens
 		},
 		{
 			name:   "with allowed tools",
@@ -381,10 +381,10 @@ func TestBuildArgsNewOptions(t *testing.T) {
 			contains: []string{"--fallback-model", "haiku"},
 		},
 		{
-			name:     "with max turns",
+			name:     "max turns ignored (CLI doesn't support it)",
 			client:   NewClaudeCLI(WithMaxTurns(5)),
 			req:      CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "Hi"}}},
-			contains: []string{"--max-turns", "5"},
+			excludes: []string{"--max-turns"}, // Claude CLI doesn't have this flag
 		},
 		{
 			name:     "with tools",

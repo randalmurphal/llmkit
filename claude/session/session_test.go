@@ -253,7 +253,7 @@ func TestSession_BuildArgs(t *testing.T) {
 
 	// Check limits
 	assertContains(t, args, "--max-budget-usd")
-	assertContains(t, args, "--max-turns")
+	// NOTE: --max-turns is NOT checked - Claude CLI doesn't support it
 }
 
 func TestSession_BuildArgs_Resume(t *testing.T) {
