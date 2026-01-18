@@ -520,8 +520,8 @@ func (c *ClaudeCLI) buildArgsWithFormat(req CompletionRequest, format OutputForm
 	// Always use --print for non-interactive mode
 	args = append(args, "--print")
 
-	// Output format and schema
-	args = c.appendOutputArgs(args, format)
+	// Output format and schema (request schema overrides client schema)
+	args = c.appendOutputArgs(args, format, req.JSONSchema)
 
 	// Session management
 	args = c.appendSessionArgs(args)
@@ -545,12 +545,18 @@ func (c *ClaudeCLI) buildArgsWithFormat(req CompletionRequest, format OutputForm
 }
 
 // appendOutputArgs adds output format arguments.
-func (c *ClaudeCLI) appendOutputArgs(args []string, format OutputFormat) []string {
+// requestSchema takes precedence over client-level schema if non-empty.
+func (c *ClaudeCLI) appendOutputArgs(args []string, format OutputFormat, requestSchema string) []string {
 	if format != "" && format != OutputFormatText {
 		args = append(args, "--output-format", string(format))
 	}
-	if c.jsonSchema != "" {
-		args = append(args, "--json-schema", c.jsonSchema)
+	// Request schema overrides client schema
+	schema := c.jsonSchema
+	if requestSchema != "" {
+		schema = requestSchema
+	}
+	if schema != "" {
+		args = append(args, "--json-schema", schema)
 	}
 	return args
 }

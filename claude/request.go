@@ -27,6 +27,11 @@ type CompletionRequest struct {
 
 	// Options holds provider-specific configuration not covered by standard fields.
 	Options map[string]any `json:"options,omitempty"`
+
+	// JSONSchema forces structured output matching the given JSON schema.
+	// When set, Claude will output valid JSON conforming to this schema.
+	// This overrides any client-level schema set via WithJSONSchema().
+	JSONSchema string `json:"json_schema,omitempty"`
 }
 
 // Message is a conversation turn.

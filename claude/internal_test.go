@@ -297,6 +297,25 @@ func TestBuildArgsNewOptions(t *testing.T) {
 			contains: []string{"--json-schema", `{"type": "object"}`},
 		},
 		{
+			name:   "with per-request JSON schema (overrides client)",
+			client: NewClaudeCLI(WithJSONSchema(`{"type": "object"}`)),
+			req: CompletionRequest{
+				Messages:   []Message{{Role: RoleUser, Content: "Hi"}},
+				JSONSchema: `{"type": "array"}`, // Per-request overrides client
+			},
+			contains: []string{"--json-schema", `{"type": "array"}`},
+			excludes: []string{`{"type": "object"}`}, // Client schema not used
+		},
+		{
+			name:   "with per-request JSON schema (no client schema)",
+			client: NewClaudeCLI(),
+			req: CompletionRequest{
+				Messages:   []Message{{Role: RoleUser, Content: "Hi"}},
+				JSONSchema: `{"type": "string"}`,
+			},
+			contains: []string{"--json-schema", `{"type": "string"}`},
+		},
+		{
 			name:     "with session ID",
 			client:   NewClaudeCLI(WithSessionID("session-xyz")),
 			req:      CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "Hi"}}},
