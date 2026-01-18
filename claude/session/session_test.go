@@ -249,7 +249,7 @@ func TestSession_BuildArgs(t *testing.T) {
 
 	// Check tools
 	assertContains(t, args, "--allowedTools")
-	assertContains(t, args, "--disallowed-tools")
+	assertContains(t, args, "--disallowedTools")
 
 	// Check limits
 	assertContains(t, args, "--max-budget-usd")

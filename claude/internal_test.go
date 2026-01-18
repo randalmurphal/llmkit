@@ -324,7 +324,7 @@ func TestBuildArgsNewOptions(t *testing.T) {
 			name:     "with disallowed tools",
 			client:   NewClaudeCLI(WithDisallowedTools([]string{"bash", "write"})),
 			req:      CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "Hi"}}},
-			contains: []string{"--disallowed-tools", "bash"},
+			contains: []string{"--disallowedTools", "bash"},
 		},
 		{
 			name:     "with dangerously skip permissions",
@@ -421,7 +421,7 @@ func TestBuildArgsNewOptions(t *testing.T) {
 				"--dangerously-skip-permissions",
 				"--max-budget-usd",
 				"--setting-sources", "project,local",
-				"--disallowed-tools",
+				"--disallowedTools",
 			},
 		},
 	}

@@ -620,8 +620,9 @@ func (c *ClaudeCLI) appendToolArgs(args []string) []string {
 	}
 
 	// Disallowed tools (blacklist)
+	// Note: Claude CLI uses camelCase for tool flags (--allowedTools, --disallowedTools)
 	for _, tool := range c.disallowedTools {
-		args = append(args, "--disallowed-tools", tool)
+		args = append(args, "--disallowedTools", tool)
 	}
 
 	// Exact tool set

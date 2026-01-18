@@ -197,8 +197,9 @@ func (s *session) buildArgs() []string {
 	for _, tool := range s.config.allowedTools {
 		args = append(args, "--allowedTools", tool)
 	}
+	// Note: Claude CLI uses camelCase for tool flags (--allowedTools, --disallowedTools)
 	for _, tool := range s.config.disallowedTools {
-		args = append(args, "--disallowed-tools", tool)
+		args = append(args, "--disallowedTools", tool)
 	}
 	if len(s.config.tools) > 0 {
 		args = append(args, "--tools", strings.Join(s.config.tools, ","))
