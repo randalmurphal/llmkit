@@ -45,6 +45,12 @@ type Session interface {
 	// WaitForInit blocks until the init message is received.
 	// Call this after Send() if you need session metadata before proceeding.
 	WaitForInit(ctx context.Context) error
+
+	// JSONLPath returns the path to Claude Code's session JSONL file.
+	// This file contains the full session history written in real-time.
+	// Returns empty string if session ID is not yet available or path cannot be determined.
+	// Path format: ~/.claude/projects/{normalized-workdir}/{sessionId}.jsonl
+	JSONLPath() string
 }
 
 // session implements Session.
@@ -504,4 +510,48 @@ func (s *session) setCloseError(err error) {
 	if s.closeErr == nil {
 		s.closeErr = err
 	}
+}
+
+// JSONLPath implements Session.
+// Returns the path to Claude Code's session JSONL file.
+func (s *session) JSONLPath() string {
+	sessionID := s.id
+	if sessionID == "" {
+		return ""
+	}
+
+	// Get workdir - either from config or use cwd
+	workdir := s.config.workdir
+	if workdir == "" {
+		// If no explicit workdir, Claude uses the cwd where it was started
+		// We can't reliably determine this, so return empty
+		return ""
+	}
+
+	// Determine home directory for .claude location
+	homeDir := s.config.homeDir
+	if homeDir == "" {
+		var err error
+		homeDir, err = os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+	}
+
+	// Claude Code normalizes the project path:
+	// /home/user/repos/project -> -home-user-repos-project
+	normalizedPath := normalizeProjectPath(workdir)
+
+	// Build the full path: ~/.claude/projects/{normalized-path}/{sessionId}.jsonl
+	return fmt.Sprintf("%s/.claude/projects/%s/%s.jsonl", homeDir, normalizedPath, sessionID)
+}
+
+// normalizeProjectPath converts an absolute path to Claude Code's normalized format.
+// Example: /home/user/repos/project -> -home-user-repos-project
+func normalizeProjectPath(path string) string {
+	// Remove leading slash and replace remaining slashes with dashes
+	normalized := strings.TrimPrefix(path, "/")
+	normalized = strings.ReplaceAll(normalized, "/", "-")
+	// Prepend dash to match Claude Code's format
+	return "-" + normalized
 }
