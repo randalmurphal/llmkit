@@ -281,17 +281,18 @@ func WithStrictMCPConfig() ClaudeOption {
 
 // CLIResponse represents the full JSON response from Claude CLI.
 type CLIResponse struct {
-	Type         string                   `json:"type"`
-	Subtype      string                   `json:"subtype"`
-	IsError      bool                     `json:"is_error"`
-	Result       string                   `json:"result"`
-	SessionID    string                   `json:"session_id"`
-	DurationMS   int                      `json:"duration_ms"`
-	DurationAPI  int                      `json:"duration_api_ms"`
-	NumTurns     int                      `json:"num_turns"`
-	TotalCostUSD float64                  `json:"total_cost_usd"`
-	Usage        CLIUsage                 `json:"usage"`
-	ModelUsage   map[string]CLIModelUsage `json:"modelUsage"`
+	Type             string                   `json:"type"`
+	Subtype          string                   `json:"subtype"`
+	IsError          bool                     `json:"is_error"`
+	Result           string                   `json:"result"`
+	StructuredOutput json.RawMessage          `json:"structured_output,omitempty"`
+	SessionID        string                   `json:"session_id"`
+	DurationMS       int                      `json:"duration_ms"`
+	DurationAPI      int                      `json:"duration_api_ms"`
+	NumTurns         int                      `json:"num_turns"`
+	TotalCostUSD     float64                  `json:"total_cost_usd"`
+	Usage            CLIUsage                 `json:"usage"`
+	ModelUsage       map[string]CLIModelUsage `json:"modelUsage"`
 }
 
 // CLIUsage contains aggregate token usage from the CLI response.
@@ -754,8 +755,15 @@ func (c *ClaudeCLI) parseResponse(data []byte) *CompletionResponse {
 
 // parseJSONResponse extracts rich data from a JSON CLI response.
 func (c *ClaudeCLI) parseJSONResponse(cliResp *CLIResponse) *CompletionResponse {
+	// When --json-schema is used, Claude returns structured output in a separate field.
+	// Prefer structured_output over result for consistent JSON handling.
+	content := cliResp.Result
+	if len(cliResp.StructuredOutput) > 0 {
+		content = string(cliResp.StructuredOutput)
+	}
+
 	resp := &CompletionResponse{
-		Content:   cliResp.Result,
+		Content:   content,
 		SessionID: cliResp.SessionID,
 		CostUSD:   cliResp.TotalCostUSD,
 		NumTurns:  cliResp.NumTurns,

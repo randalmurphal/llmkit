@@ -251,6 +251,33 @@ func TestParseJSONResponse(t *testing.T) {
 				TotalTokens:  0,
 			},
 		},
+		{
+			name: "structured_output from json-schema",
+			data: []byte(`{
+				"type": "result",
+				"subtype": "success",
+				"is_error": false,
+				"result": "Done.",
+				"structured_output": {"ready": true, "suggestions": []},
+				"session_id": "schema-session",
+				"duration_ms": 1000,
+				"num_turns": 1,
+				"total_cost_usd": 0.02,
+				"usage": {
+					"input_tokens": 50,
+					"output_tokens": 25
+				}
+			}`),
+			wantContent:   `{"ready": true, "suggestions": []}`,
+			wantSessionID: "schema-session",
+			wantCostUSD:   0.02,
+			wantModel:     "fallback-model",
+			wantTokens: TokenUsage{
+				InputTokens:  50,
+				OutputTokens: 25,
+				TotalTokens:  75,
+			},
+		},
 	}
 
 	for _, tt := range tests {
