@@ -3,43 +3,31 @@ package claude
 import (
 	"strings"
 	"sync"
-
-	"github.com/randalmurphal/llmkit/parser"
 )
 
 // StreamAccumulator collects streaming content and provides analysis.
-// It accumulates chunks as they arrive and optionally checks for markers
-// in real-time, enabling early detection of completion signals.
+// It accumulates chunks as they arrive.
 //
 // Thread-safe for concurrent append and read operations.
 type StreamAccumulator struct {
 	content strings.Builder
-	markers *parser.MarkerMatcher
 	usage   *TokenUsage
 	done    bool
 	err     error
 	mu      sync.RWMutex
 }
 
-// NewStreamAccumulator creates an accumulator with optional marker detection.
-// If markers is nil, marker detection methods will return false/empty.
+// NewStreamAccumulator creates an accumulator for collecting stream chunks.
 //
 // Example:
 //
-//	markers := parser.NewMarkerMatcher("phase_complete", "phase_blocked")
-//	acc := NewStreamAccumulator(markers)
+//	acc := NewStreamAccumulator()
 //
 //	for chunk := range stream {
 //	    acc.Append(chunk)
-//	    if acc.HasMarker("phase_complete") {
-//	        // Early completion detection
-//	        break
-//	    }
 //	}
-func NewStreamAccumulator(markers *parser.MarkerMatcher) *StreamAccumulator {
-	return &StreamAccumulator{
-		markers: markers,
-	}
+func NewStreamAccumulator() *StreamAccumulator {
+	return &StreamAccumulator{}
 }
 
 // Append adds a chunk's content to the accumulator.
@@ -100,108 +88,6 @@ func (a *StreamAccumulator) Len() int {
 	return a.content.Len()
 }
 
-// HasMarker checks if a marker with the given tag has been detected
-// in the accumulated content so far.
-//
-// Returns false if no markers matcher was provided.
-func (a *StreamAccumulator) HasMarker(tag string) bool {
-	if a.markers == nil {
-		return false
-	}
-
-	a.mu.RLock()
-	content := a.content.String()
-	a.mu.RUnlock()
-
-	return a.markers.Contains(content, tag)
-}
-
-// HasMarkerValue checks if a marker with the specific tag and value exists
-// in the accumulated content.
-func (a *StreamAccumulator) HasMarkerValue(tag, value string) bool {
-	if a.markers == nil {
-		return false
-	}
-
-	a.mu.RLock()
-	content := a.content.String()
-	a.mu.RUnlock()
-
-	return a.markers.ContainsValue(content, tag, value)
-}
-
-// GetMarker returns the first marker with the given tag found in the
-// accumulated content. Returns false if not found or no matcher configured.
-func (a *StreamAccumulator) GetMarker(tag string) (parser.Marker, bool) {
-	if a.markers == nil {
-		return parser.Marker{}, false
-	}
-
-	a.mu.RLock()
-	content := a.content.String()
-	a.mu.RUnlock()
-
-	return a.markers.FindFirst(content, tag)
-}
-
-// GetMarkerValue returns the value of a marker with the given tag.
-// Returns empty string if not found.
-func (a *StreamAccumulator) GetMarkerValue(tag string) string {
-	if a.markers == nil {
-		return ""
-	}
-
-	a.mu.RLock()
-	content := a.content.String()
-	a.mu.RUnlock()
-
-	return a.markers.GetValue(content, tag)
-}
-
-// AllMarkers returns all markers found in the accumulated content.
-// Returns nil if no matcher configured or no markers found.
-func (a *StreamAccumulator) AllMarkers() []parser.Marker {
-	if a.markers == nil {
-		return nil
-	}
-
-	a.mu.RLock()
-	content := a.content.String()
-	a.mu.RUnlock()
-
-	return a.markers.FindAll(content)
-}
-
-// IsPhaseComplete checks if a phase_complete marker with value "true"
-// has been detected. Uses the global PhaseMarkers matcher.
-func (a *StreamAccumulator) IsPhaseComplete() bool {
-	a.mu.RLock()
-	content := a.content.String()
-	a.mu.RUnlock()
-
-	return parser.IsPhaseComplete(content)
-}
-
-// IsPhaseBlocked checks if a phase_blocked marker has been detected.
-// Uses the global PhaseMarkers matcher.
-func (a *StreamAccumulator) IsPhaseBlocked() bool {
-	a.mu.RLock()
-	content := a.content.String()
-	a.mu.RUnlock()
-
-	return parser.IsPhaseBlocked(content)
-}
-
-// GetBlockedReason returns the reason from a phase_blocked marker, if present.
-// Uses the global PhaseMarkers matcher.
-func (a *StreamAccumulator) GetBlockedReason() string {
-	a.mu.RLock()
-	content := a.content.String()
-	a.mu.RUnlock()
-
-	return parser.GetBlockedReason(content)
-}
-
 // Reset clears the accumulator for reuse.
 func (a *StreamAccumulator) Reset() {
 	a.mu.Lock()
@@ -242,7 +128,7 @@ func (a *StreamAccumulator) ToResponse() *CompletionResponse {
 // Example:
 //
 //	stream, _ := client.Stream(ctx, req)
-//	acc := NewStreamAccumulator(nil)
+//	acc := NewStreamAccumulator()
 //	if err := acc.ConsumeStream(stream); err != nil {
 //	    // Handle error
 //	}
@@ -263,10 +149,10 @@ func (a *StreamAccumulator) ConsumeStream(stream <-chan StreamChunk) error {
 //
 // Example:
 //
-//	acc := NewStreamAccumulator(markers)
+//	acc := NewStreamAccumulator()
 //	err := acc.ConsumeStreamWithCallback(stream, func(chunk StreamChunk) bool {
 //	    fmt.Print(chunk.Content) // Print as we receive
-//	    return !acc.IsPhaseComplete() // Stop early on completion
+//	    return true // Continue consuming
 //	})
 func (a *StreamAccumulator) ConsumeStreamWithCallback(stream <-chan StreamChunk, callback func(StreamChunk) bool) error {
 	for chunk := range stream {
