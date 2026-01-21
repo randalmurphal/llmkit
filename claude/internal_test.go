@@ -39,7 +39,7 @@ func TestBuildArgs(t *testing.T) {
 			req: CompletionRequest{
 				Messages: []Message{{Role: RoleUser, Content: "Hello"}},
 			},
-			contains: []string{"--print", "-p"},
+			contains: []string{"--print", "Hello"}, // prompt is positional arg, not -p flag
 		},
 		{
 			name:   "with system prompt",
@@ -74,7 +74,7 @@ func TestBuildArgs(t *testing.T) {
 				MaxTokens: 1000, // Silently ignored - CLI doesn't have this flag
 				Messages:  []Message{{Role: RoleUser, Content: "Test"}},
 			},
-			contains: []string{"-p"}, // Just verify basic args, no --max-tokens
+			contains: []string{"--print", "Test"}, // Just verify basic args, no --max-tokens
 		},
 		{
 			name:   "with allowed tools",
@@ -94,7 +94,7 @@ func TestBuildArgs(t *testing.T) {
 					{Role: RoleUser, Content: "Second"},
 				},
 			},
-			contains: []string{"-p"},
+			contains: []string{"--print"}, // prompt is positional arg (concatenated messages)
 		},
 	}
 

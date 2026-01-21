@@ -718,10 +718,11 @@ func (c *ClaudeCLI) appendMessagePrompt(args []string, messages []Message) []str
 		}
 	}
 
-	// Use -p flag for prompt
+	// Prompt is a positional argument (not a flag)
+	// Note: -p/--print is for non-interactive mode, NOT for passing the prompt
 	promptStr := strings.TrimSpace(prompt.String())
 	if promptStr != "" {
-		args = append(args, "-p", promptStr)
+		args = append(args, promptStr)
 	}
 
 	return args
