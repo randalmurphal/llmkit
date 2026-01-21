@@ -8,6 +8,22 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// mustParseResponse is a test helper that calls parseResponseWithSchema with no schema.
+// Used for tests that don't involve JSON schema validation.
+func mustParseResponse(t *testing.T, client *ClaudeCLI, data []byte) *CompletionResponse {
+	t.Helper()
+	return mustParseResponseWithSchema(t, client, data, "")
+}
+
+func mustParseResponseWithSchema(t *testing.T, client *ClaudeCLI, data []byte, schema string) *CompletionResponse {
+	t.Helper()
+	resp, err := client.parseResponseWithSchema(data, schema)
+	if err != nil {
+		t.Fatalf("parseResponseWithSchema failed: %v", err)
+	}
+	return resp
+}
+
 // Internal tests for private functions
 
 func TestBuildArgs(t *testing.T) {
@@ -132,7 +148,7 @@ func TestParseResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := client.parseResponse(tt.data)
+			resp := mustParseResponse(t, client, tt.data)
 
 			assert.Equal(t, tt.expected, resp.Content)
 			assert.Equal(t, "stop", resp.FinishReason)
@@ -171,6 +187,7 @@ func TestParseJSONResponse(t *testing.T) {
 	tests := []struct {
 		name          string
 		data          []byte
+		schema        string // If non-empty, pass to parseResponseWithSchema
 		wantContent   string
 		wantSessionID string
 		wantCostUSD   float64
@@ -268,6 +285,7 @@ func TestParseJSONResponse(t *testing.T) {
 					"output_tokens": 25
 				}
 			}`),
+			schema:        `{"type": "object"}`, // Schema specified - MUST use structured_output
 			wantContent:   `{"ready": true, "suggestions": []}`,
 			wantSessionID: "schema-session",
 			wantCostUSD:   0.02,
@@ -282,7 +300,7 @@ func TestParseJSONResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := client.parseResponse(tt.data)
+			resp := mustParseResponseWithSchema(t, client, tt.data, tt.schema)
 
 			assert.Equal(t, tt.wantContent, resp.Content)
 			assert.Equal(t, tt.wantSessionID, resp.SessionID)

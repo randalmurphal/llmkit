@@ -401,7 +401,16 @@ func (c *ClaudeCLI) Complete(ctx context.Context, req CompletionRequest) (*Compl
 		return nil, NewError("complete", fmt.Errorf("%w: %s", err, errMsg), retryable)
 	}
 
-	resp := c.parseResponse(stdout.Bytes())
+	// Determine effective schema (request overrides client)
+	effectiveSchema := c.jsonSchema
+	if req.JSONSchema != "" {
+		effectiveSchema = req.JSONSchema
+	}
+
+	resp, err := c.parseResponseWithSchema(stdout.Bytes(), effectiveSchema)
+	if err != nil {
+		return nil, NewError("complete", err, false)
+	}
 	resp.Duration = time.Since(start)
 
 	return resp, nil
@@ -547,17 +556,20 @@ func (c *ClaudeCLI) buildArgsWithFormat(req CompletionRequest, format OutputForm
 
 // appendOutputArgs adds output format arguments.
 // requestSchema takes precedence over client-level schema if non-empty.
+// When a JSON schema is specified, JSON output format is enforced automatically.
 func (c *ClaudeCLI) appendOutputArgs(args []string, format OutputFormat, requestSchema string) []string {
-	if format != "" && format != OutputFormatText {
-		args = append(args, "--output-format", string(format))
-	}
 	// Request schema overrides client schema
 	schema := c.jsonSchema
 	if requestSchema != "" {
 		schema = requestSchema
 	}
+
+	// When schema is set, REQUIRE JSON output format (--json-schema only works with JSON)
 	if schema != "" {
+		args = append(args, "--output-format", string(OutputFormatJSON))
 		args = append(args, "--json-schema", schema)
+	} else if format != "" && format != OutputFormatText {
+		args = append(args, "--output-format", string(format))
 	}
 	return args
 }
@@ -715,20 +727,30 @@ func (c *ClaudeCLI) appendMessagePrompt(args []string, messages []Message) []str
 	return args
 }
 
-// parseResponse extracts response data from CLI output.
-// Handles both JSON format (rich data) and text format (basic).
-func (c *ClaudeCLI) parseResponse(data []byte) *CompletionResponse {
+// parseResponseWithSchema extracts response data from CLI output.
+// When schema is non-empty, structured_output is REQUIRED - no fallback to result.
+// This ensures callers get explicit errors when schema enforcement fails.
+func (c *ClaudeCLI) parseResponseWithSchema(data []byte, schema string) (*CompletionResponse, error) {
 	content := strings.TrimSpace(string(data))
 
 	// Try to parse as JSON response
 	var cliResp CLIResponse
 	if err := json.Unmarshal(data, &cliResp); err == nil && cliResp.Type != "" {
-		return c.parseJSONResponse(&cliResp)
+		return c.parseJSONResponseWithSchema(&cliResp, schema)
 	}
 
-	// JSON parsing failed - log warning if JSON format was expected
+	// JSON parsing failed
+	if schema != "" {
+		// Schema was requested - this is an error, not a fallback situation
+		preview := content
+		if len(preview) > 200 {
+			preview = preview[:200] + "..."
+		}
+		return nil, fmt.Errorf("JSON schema was specified but CLI returned non-JSON response: %s", preview)
+	}
+
+	// No schema - log warning if JSON format was expected
 	if c.outputFormat == OutputFormatJSON {
-		// Truncate output for logging
 		preview := content
 		if len(preview) > 200 {
 			preview = preview[:200] + "..."
@@ -739,27 +761,39 @@ func (c *ClaudeCLI) parseResponse(data []byte) *CompletionResponse {
 			slog.String("impact", "token tracking unavailable"))
 	}
 
-	// Fall back to raw text response
+	// No schema - fall back to raw text response
 	return &CompletionResponse{
 		Content:      content,
 		FinishReason: "stop",
 		Model:        c.model,
 		Usage: TokenUsage{
-			// Token counts not available from basic CLI output
 			InputTokens:  0,
 			OutputTokens: 0,
 			TotalTokens:  0,
 		},
-	}
+	}, nil
 }
 
-// parseJSONResponse extracts rich data from a JSON CLI response.
-func (c *ClaudeCLI) parseJSONResponse(cliResp *CLIResponse) *CompletionResponse {
-	// When --json-schema is used, Claude returns structured output in a separate field.
-	// Prefer structured_output over result for consistent JSON handling.
-	content := cliResp.Result
-	if len(cliResp.StructuredOutput) > 0 {
+// parseJSONResponseWithSchema extracts rich data from a JSON CLI response.
+// When schema is non-empty, ONLY uses structured_output - errors if empty.
+// No silent fallback to result field when schema was specified.
+func (c *ClaudeCLI) parseJSONResponseWithSchema(cliResp *CLIResponse, schema string) (*CompletionResponse, error) {
+	var content string
+
+	if schema != "" {
+		// Schema was used - MUST have structured_output, no fallback
+		if len(cliResp.StructuredOutput) == 0 {
+			// Provide context about what we got instead
+			preview := cliResp.Result
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			return nil, fmt.Errorf("JSON schema was specified but structured_output is empty (result=%q)", preview)
+		}
 		content = string(cliResp.StructuredOutput)
+	} else {
+		// No schema - use result field
+		content = cliResp.Result
 	}
 
 	resp := &CompletionResponse{
@@ -794,7 +828,7 @@ func (c *ClaudeCLI) parseJSONResponse(cliResp *CLIResponse) *CompletionResponse 
 		resp.Model = c.model
 	}
 
-	return resp
+	return resp, nil
 }
 
 // isRetryableError checks if an error message indicates a transient error.
