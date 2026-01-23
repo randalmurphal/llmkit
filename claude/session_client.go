@@ -174,31 +174,47 @@ collectLoop:
 	return resp, nil
 }
 
-// Stream implements Client by sending a message and streaming responses.
-// Each assistant message is yielded as a StreamChunk.
-func (c *SessionClient) Stream(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error) {
+// StreamJSON implements Client by sending a message and streaming responses.
+// Each assistant message is yielded as a StreamEvent.
+func (c *SessionClient) StreamJSON(ctx context.Context, req CompletionRequest) (<-chan StreamEvent, *StreamResult, error) {
 	// Convert messages to user message content
 	prompt := messagesToPrompt(req.Messages)
 	if prompt == "" {
-		return nil, NewError("stream", fmt.Errorf("no message content"), false)
+		return nil, nil, NewError("stream", fmt.Errorf("no message content"), false)
 	}
 
 	// Send the message
 	userMsg := session.NewUserMessage(prompt)
 	if err := c.session.Send(ctx, userMsg); err != nil {
 		retryable := isSessionRetryable(err)
-		return nil, NewError("stream", fmt.Errorf("send message: %w", err), retryable)
+		return nil, nil, NewError("stream", fmt.Errorf("send message: %w", err), retryable)
 	}
 
-	ch := make(chan StreamChunk)
+	events := make(chan StreamEvent)
+	result := newStreamResult()
 
 	go func() {
-		defer close(ch)
+		defer close(events)
+
+		info := c.session.Info()
+
+		// Send init event
+		events <- StreamEvent{
+			Type:      StreamEventInit,
+			SessionID: info.ID,
+			Init: &InitEvent{
+				SessionID: info.ID,
+				Model:     info.Model,
+			},
+		}
+
+		var totalUsage MessageUsage
 
 		for msg := range c.session.Output() {
 			select {
 			case <-ctx.Done():
-				ch <- StreamChunk{Error: ctx.Err()}
+				events <- StreamEvent{Type: StreamEventError, Error: ctx.Err()}
+				result.complete(nil, ctx.Err())
 				return
 			default:
 			}
@@ -206,47 +222,51 @@ func (c *SessionClient) Stream(ctx context.Context, req CompletionRequest) (<-ch
 			if msg.IsAssistant() {
 				text := msg.GetText()
 				if text != "" {
-					select {
-					case ch <- StreamChunk{Content: text}:
-					case <-ctx.Done():
-						ch <- StreamChunk{Error: ctx.Err()}
-						return
+					events <- StreamEvent{
+						Type:      StreamEventAssistant,
+						SessionID: info.ID,
+						Assistant: &AssistantEvent{
+							Text:  text,
+							Model: info.Model,
+							Usage: MessageUsage{}, // Session doesn't provide per-message usage
+						},
 					}
 				}
 			}
 
 			if msg.IsResult() {
-				result := msg.Result
-				chunk := StreamChunk{
-					Done: true,
-				}
-
-				if result != nil {
-					chunk.Usage = &TokenUsage{
-						InputTokens:              result.Usage.InputTokens,
-						OutputTokens:             result.Usage.OutputTokens,
-						TotalTokens:              result.Usage.InputTokens + result.Usage.OutputTokens,
-						CacheCreationInputTokens: result.Usage.CacheCreationInputTokens,
-						CacheReadInputTokens:     result.Usage.CacheReadInputTokens,
+				msgResult := msg.Result
+				if msgResult != nil {
+					totalUsage = MessageUsage{
+						InputTokens:              msgResult.Usage.InputTokens,
+						OutputTokens:             msgResult.Usage.OutputTokens,
+						CacheCreationInputTokens: msgResult.Usage.CacheCreationInputTokens,
+						CacheReadInputTokens:     msgResult.Usage.CacheReadInputTokens,
 					}
 				}
 
-				select {
-				case ch <- chunk:
-				case <-ctx.Done():
+				resultEvent := &ResultEvent{
+					Subtype:   "success",
+					IsError:   false,
+					SessionID: info.ID,
+					NumTurns:  1,
+					Usage: ResultUsage{
+						InputTokens:              totalUsage.InputTokens,
+						OutputTokens:             totalUsage.OutputTokens,
+						CacheCreationInputTokens: totalUsage.CacheCreationInputTokens,
+						CacheReadInputTokens:     totalUsage.CacheReadInputTokens,
+					},
 				}
+				result.complete(resultEvent, nil)
 				return
 			}
 		}
 
 		// Session output channel closed without result
-		ch <- StreamChunk{
-			Done:  true,
-			Error: fmt.Errorf("session ended without result"),
-		}
+		result.complete(nil, fmt.Errorf("session ended without result"))
 	}()
 
-	return ch, nil
+	return events, result, nil
 }
 
 // Close closes the session if this client owns it.

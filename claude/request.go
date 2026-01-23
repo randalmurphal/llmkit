@@ -101,15 +101,6 @@ func (u *TokenUsage) Add(other TokenUsage) {
 	u.CacheReadInputTokens += other.CacheReadInputTokens
 }
 
-// StreamChunk is a piece of a streaming response.
-type StreamChunk struct {
-	Content   string      `json:"content,omitempty"`
-	ToolCalls []ToolCall  `json:"tool_calls,omitempty"`
-	Usage     *TokenUsage `json:"usage,omitempty"` // Only set in final chunk
-	Done      bool        `json:"done"`
-	Error     error       `json:"-"` // Non-nil if streaming failed
-}
-
 // Capabilities describes what a provider natively supports.
 // This type mirrors provider.Capabilities for API compatibility.
 type Capabilities struct {

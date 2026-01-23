@@ -2,10 +2,10 @@ package claude
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -378,145 +378,261 @@ func (c *ClaudeCLI) resolvedPath() string {
 }
 
 // Complete implements Client.
+// This is a convenience wrapper around StreamJSON that collects all events
+// and returns a single CompletionResponse.
 func (c *ClaudeCLI) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	start := time.Now()
 
-	args := c.buildArgs(req)
-	cmd := exec.CommandContext(ctx, c.resolvedPath(), args...)
-	c.setupCmd(cmd)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	cmd.Stdin = nil // Use /dev/null to prevent TTY/raw mode errors in containers
-
-	if err := cmd.Run(); err != nil {
-		// Check for context cancellation first
-		if ctx.Err() != nil {
-			return nil, NewError("complete", ctx.Err(), false)
-		}
-
-		errMsg := sanitizeStderr(stderr.String())
-		retryable := isRetryableError(errMsg)
-		return nil, NewError("complete", fmt.Errorf("%w: %s", err, errMsg), retryable)
-	}
-
-	// Determine effective schema (request overrides client)
-	effectiveSchema := c.jsonSchema
-	if req.JSONSchema != "" {
-		effectiveSchema = req.JSONSchema
-	}
-
-	resp, err := c.parseResponseWithSchema(stdout.Bytes(), effectiveSchema)
+	events, result, err := c.StreamJSON(ctx, req)
 	if err != nil {
-		return nil, NewError("complete", err, false)
+		return nil, err
+	}
+
+	resp, err := StreamToComplete(ctx, events, result)
+	if err != nil {
+		return nil, err
 	}
 	resp.Duration = time.Since(start)
 
 	return resp, nil
 }
 
-// Stream implements Client.
-func (c *ClaudeCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error) {
-	// Force stream-json output for streaming
-	args := c.buildArgsWithFormat(req, OutputFormatStreamJSON)
+// StreamJSON sends a request and returns a channel of typed streaming events.
+// The StreamResult future resolves when streaming completes with final totals.
+//
+// This is the core streaming implementation. Use Complete() for a simpler
+// blocking interface that returns a single CompletionResponse.
+//
+// Example:
+//
+//	events, result, err := client.StreamJSON(ctx, req)
+//	if err != nil {
+//	    return err
+//	}
+//	for event := range events {
+//	    switch event.Type {
+//	    case StreamEventInit:
+//	        fmt.Println("Session:", event.Init.SessionID)
+//	    case StreamEventAssistant:
+//	        fmt.Print(event.Assistant.Text)
+//	    case StreamEventResult:
+//	        fmt.Println("Cost:", event.Result.TotalCostUSD)
+//	    }
+//	}
+//	final, err := result.Wait(ctx)
+func (c *ClaudeCLI) StreamJSON(ctx context.Context, req CompletionRequest) (<-chan StreamEvent, *StreamResult, error) {
+	args := c.buildArgsForStreamJSON(req)
 	cmd := exec.CommandContext(ctx, c.resolvedPath(), args...)
 	c.setupCmd(cmd)
 	cmd.Stdin = nil // Use /dev/null to prevent TTY/raw mode errors in containers
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, NewError("stream", fmt.Errorf("create stdout pipe: %w", err), false)
+		return nil, nil, NewError("stream_json", fmt.Errorf("create stdout pipe: %w", err), false)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, NewError("stream", fmt.Errorf("start command: %w", err), false)
+		return nil, nil, NewError("stream_json", fmt.Errorf("start command: %w", err), false)
 	}
 
-	ch := make(chan StreamChunk)
-	go func() {
-		defer close(ch)
-		var cmdErr error
-		defer func() {
-			// Wait for command to finish and capture error
-			cmdErr = cmd.Wait()
-			if cmdErr != nil {
-				// Try to send error to channel if command failed
-				select {
-				case ch <- StreamChunk{Error: NewError("stream", fmt.Errorf("command failed: %w", cmdErr), false)}:
-				default:
-					// Channel closed or full - error already sent
-				}
-			}
-		}()
+	events := make(chan StreamEvent, 100)
+	result := newStreamResult()
 
-		scanner := bufio.NewScanner(stdout)
-		var accumulatedContent strings.Builder
+	go c.processStreamJSON(ctx, stdout, cmd, events, result)
 
-		for scanner.Scan() {
-			line := scanner.Text()
-			if line == "" {
-				continue
-			}
+	return events, result, nil
+}
 
-			// Try to parse as JSON streaming event
-			var event streamEvent
-			if err := json.Unmarshal([]byte(line), &event); err != nil {
-				// Not JSON, treat as raw text
-				accumulatedContent.WriteString(line)
-				accumulatedContent.WriteString("\n")
-				select {
-				case ch <- StreamChunk{Content: line + "\n"}:
-				case <-ctx.Done():
-					ch <- StreamChunk{Error: ctx.Err()}
-					return
-				}
-				continue
-			}
+// buildArgsForStreamJSON constructs arguments for stream-json mode.
+// Uses --output-format stream-json --verbose for full event data.
+// Still supports --json-schema for structured output.
+func (c *ClaudeCLI) buildArgsForStreamJSON(req CompletionRequest) []string {
+	var args []string
 
-			// Handle different event types
-			switch event.Type {
-			case "content_block_delta":
-				if event.Delta != nil && event.Delta.Text != "" {
-					accumulatedContent.WriteString(event.Delta.Text)
-					select {
-					case ch <- StreamChunk{Content: event.Delta.Text}:
-					case <-ctx.Done():
-						ch <- StreamChunk{Error: ctx.Err()}
-						return
-					}
-				}
-			case "message_stop":
-				select {
-				case ch <- StreamChunk{
-					Done: true,
-					Usage: &TokenUsage{
-						InputTokens:  event.Usage.InputTokens,
-						OutputTokens: event.Usage.OutputTokens,
-						TotalTokens:  event.Usage.InputTokens + event.Usage.OutputTokens,
-					},
-				}:
-				case <-ctx.Done():
-					ch <- StreamChunk{Error: ctx.Err()}
-					return
-				}
-			}
+	// Always use --print for non-interactive mode
+	args = append(args, "--print")
+
+	// Stream-json format with verbose for full events
+	args = append(args, "--output-format", "stream-json")
+	args = append(args, "--verbose")
+
+	// JSON schema support (structured_output appears in result event)
+	schema := c.jsonSchema
+	if req.JSONSchema != "" {
+		schema = req.JSONSchema
+	}
+	if schema != "" {
+		args = append(args, "--json-schema", schema)
+	}
+
+	// Session management
+	args = c.appendSessionArgs(args)
+
+	// Model and prompt configuration
+	args = c.appendModelArgs(args, req)
+
+	// Tool control
+	args = c.appendToolArgs(args)
+
+	// MCP configuration
+	args = c.appendMCPArgs(args)
+
+	// Permissions and settings
+	args = c.appendPermissionArgs(args)
+
+	// Build and append the actual prompt from messages
+	args = c.appendMessagePrompt(args, req.Messages)
+
+	return args
+}
+
+// processStreamJSON reads and parses stream-json output.
+func (c *ClaudeCLI) processStreamJSON(
+	ctx context.Context,
+	stdout io.ReadCloser,
+	cmd *exec.Cmd,
+	events chan<- StreamEvent,
+	result *StreamResult,
+) {
+	defer close(events)
+
+	scanner := bufio.NewScanner(stdout)
+	// Increase buffer size for large messages (10MB max)
+	const maxScanTokenSize = 10 * 1024 * 1024
+	scanner.Buffer(make([]byte, 64*1024), maxScanTokenSize)
+
+	var sessionID string
+	var finalResult *ResultEvent
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
 		}
 
-		if err := scanner.Err(); err != nil {
-			ch <- StreamChunk{Error: NewError("stream", fmt.Errorf("read output: %w", err), false)}
+		event, err := parseStreamEvent(line)
+		if err != nil {
+			// Log parse error but continue
+			slog.Debug("failed to parse stream event", "error", err, "line", string(line))
+			continue
+		}
+
+		// Track session ID from first event that has it
+		if event.SessionID != "" && sessionID == "" {
+			sessionID = event.SessionID
+		}
+		event.SessionID = sessionID
+
+		// Capture result for the future
+		if event.Type == StreamEventResult && event.Result != nil {
+			finalResult = event.Result
+		}
+
+		select {
+		case events <- *event:
+		case <-ctx.Done():
+			result.complete(nil, ctx.Err())
 			return
 		}
+	}
 
-		// If we didn't get a message_stop event, send final chunk
-		select {
-		case ch <- StreamChunk{Done: true}:
-		default:
+	if err := scanner.Err(); err != nil {
+		result.complete(nil, NewError("stream_json", fmt.Errorf("read output: %w", err), false))
+		// Wait for command to finish
+		_ = cmd.Wait()
+		return
+	}
+
+	// Wait for command to finish
+	if err := cmd.Wait(); err != nil {
+		if finalResult == nil {
+			result.complete(nil, NewError("stream_json", fmt.Errorf("command failed: %w", err), false))
+			return
 		}
-	}()
+		// If we have a result, the error might just be non-zero exit from tool use
+	}
 
-	return ch, nil
+	result.complete(finalResult, nil)
 }
+
+// parseStreamEvent parses a single JSON line into a StreamEvent.
+func parseStreamEvent(data []byte) (*StreamEvent, error) {
+	// First pass: determine type
+	var base struct {
+		Type      string `json:"type"`
+		Subtype   string `json:"subtype,omitempty"`
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(data, &base); err != nil {
+		return nil, err
+	}
+
+	event := &StreamEvent{
+		SessionID: base.SessionID,
+		Raw:       data,
+	}
+
+	// Parse type-specific data
+	switch base.Type {
+	case "system":
+		if base.Subtype == "init" {
+			event.Type = StreamEventInit
+			event.Init = &InitEvent{}
+			if err := json.Unmarshal(data, event.Init); err != nil {
+				return nil, err
+			}
+		} else if base.Subtype == "hook_response" {
+			event.Type = StreamEventHook
+			event.Hook = &HookEvent{}
+			if err := json.Unmarshal(data, event.Hook); err != nil {
+				return nil, err
+			}
+		}
+
+	case "assistant":
+		event.Type = StreamEventAssistant
+		var assistantWrapper struct {
+			Message struct {
+				ID         string         `json:"id"`
+				Content    []ContentBlock `json:"content"`
+				Model      string         `json:"model"`
+				Usage      MessageUsage   `json:"usage"`
+				StopReason *string        `json:"stop_reason"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal(data, &assistantWrapper); err != nil {
+			return nil, err
+		}
+		msg := assistantWrapper.Message
+		event.Assistant = &AssistantEvent{
+			MessageID: msg.ID,
+			Content:   msg.Content,
+			Model:     msg.Model,
+			Usage:     msg.Usage,
+		}
+		if msg.StopReason != nil {
+			event.Assistant.StopReason = *msg.StopReason
+		}
+		// Compute convenience text field
+		var text strings.Builder
+		for _, block := range msg.Content {
+			if block.Type == "text" {
+				text.WriteString(block.Text)
+			}
+		}
+		event.Assistant.Text = text.String()
+
+	case "result":
+		event.Type = StreamEventResult
+		event.Result = &ResultEvent{}
+		if err := json.Unmarshal(data, event.Result); err != nil {
+			return nil, err
+		}
+	}
+
+	return event, nil
+}
+
 
 // buildArgs constructs CLI arguments from a request using the client's configured format.
 func (c *ClaudeCLI) buildArgs(req CompletionRequest) []string {
@@ -856,20 +972,6 @@ func sanitizeStderr(stderr string) string {
 	return strings.TrimSpace(stderr)
 }
 
-// streamEvent represents a streaming API event from claude.
-type streamEvent struct {
-	Type  string       `json:"type"`
-	Delta *streamDelta `json:"delta,omitempty"`
-	Usage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage,omitempty"`
-}
-
-type streamDelta struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}
 
 // Provider returns the provider name.
 // Implements provider.Client.

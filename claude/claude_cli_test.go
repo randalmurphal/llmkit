@@ -323,10 +323,10 @@ func TestClaudeCLI_Complete_NonExistentBinary(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestClaudeCLI_Stream_NonExistentBinary(t *testing.T) {
+func TestClaudeCLI_StreamJSON_NonExistentBinary(t *testing.T) {
 	client := claude.NewClaudeCLI(claude.WithClaudePath("/nonexistent/path/to/claude"))
 
-	_, err := client.Stream(context.Background(), claude.CompletionRequest{
+	_, _, err := client.StreamJSON(context.Background(), claude.CompletionRequest{
 		Messages: []claude.Message{{Role: claude.RoleUser, Content: "test"}},
 	})
 
@@ -353,40 +353,54 @@ func TestTokenUsage_Add(t *testing.T) {
 	assert.Equal(t, 45, usage.TotalTokens)
 }
 
-func TestMockClient_WithStreamFunc(t *testing.T) {
-	mock := claude.NewMockClient("").WithStreamFunc(func(ctx context.Context, req claude.CompletionRequest) (<-chan claude.StreamChunk, error) {
-		ch := make(chan claude.StreamChunk)
+func TestMockClient_WithStreamJSONFunc(t *testing.T) {
+	mock := claude.NewMockClient("").WithStreamJSONFunc(func(ctx context.Context, req claude.CompletionRequest) (<-chan claude.StreamEvent, *claude.StreamResult, error) {
+		ch := make(chan claude.StreamEvent)
+		result := claude.NewTestStreamResult()
 		go func() {
 			defer close(ch)
-			ch <- claude.StreamChunk{Content: "custom "}
-			ch <- claude.StreamChunk{Content: "stream"}
-			ch <- claude.StreamChunk{Done: true}
+			ch <- claude.StreamEvent{
+				Type:      claude.StreamEventAssistant,
+				Assistant: &claude.AssistantEvent{Text: "custom "},
+			}
+			ch <- claude.StreamEvent{
+				Type:      claude.StreamEventAssistant,
+				Assistant: &claude.AssistantEvent{Text: "stream"},
+			}
+			result.TestComplete(&claude.ResultEvent{Subtype: "success"}, nil)
 		}()
-		return ch, nil
+		return ch, result, nil
 	})
 
-	ch, err := mock.Stream(context.Background(), claude.CompletionRequest{})
+	events, result, err := mock.StreamJSON(context.Background(), claude.CompletionRequest{})
 	require.NoError(t, err)
 
 	var content string
-	for chunk := range ch {
-		content += chunk.Content
+	for event := range events {
+		if event.Type == claude.StreamEventAssistant && event.Assistant != nil {
+			content += event.Assistant.Text
+		}
 	}
 	assert.Equal(t, "custom stream", content)
+
+	// Verify result
+	final, err := result.Wait(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "success", final.Subtype)
 }
 
-func TestMockClient_Stream_ContextCancellation(t *testing.T) {
+func TestMockClient_StreamJSON_ContextCancellation(t *testing.T) {
 	mock := claude.NewMockClient("response")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	ch, err := mock.Stream(ctx, claude.CompletionRequest{})
+	events, _, err := mock.StreamJSON(ctx, claude.CompletionRequest{})
 	require.NoError(t, err)
 
 	// Read from channel - may get content or error depending on race
-	chunk := <-ch
-	// Either we get an error chunk or a content chunk that may or may not have error
+	event := <-events
+	// Either we get an error event or a content event that may or may not have error
 	// The important thing is the channel closes cleanly
-	_ = chunk
+	_ = event
 }

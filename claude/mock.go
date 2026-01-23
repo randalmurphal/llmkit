@@ -9,12 +9,12 @@ import (
 // MockClient is a test double for Client.
 // It supports fixed responses, sequential responses, and custom handlers.
 type MockClient struct {
-	mu           sync.Mutex
-	responses    []string
-	responseIdx  int
-	err          error
-	completeFunc func(ctx context.Context, req CompletionRequest) (*CompletionResponse, error)
-	streamFunc   func(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error)
+	mu             sync.Mutex
+	responses      []string
+	responseIdx    int
+	err            error
+	completeFunc   func(ctx context.Context, req CompletionRequest) (*CompletionResponse, error)
+	streamJSONFunc func(ctx context.Context, req CompletionRequest) (<-chan StreamEvent, *StreamResult, error)
 
 	// Calls tracks all requests for assertions.
 	Calls []CompletionRequest
@@ -46,9 +46,9 @@ func (m *MockClient) WithCompleteFunc(fn func(ctx context.Context, req Completio
 	return m
 }
 
-// WithStreamFunc sets a custom handler for Stream calls.
-func (m *MockClient) WithStreamFunc(fn func(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error)) *MockClient {
-	m.streamFunc = fn
+// WithStreamJSONFunc sets a custom handler for StreamJSON calls.
+func (m *MockClient) WithStreamJSONFunc(fn func(ctx context.Context, req CompletionRequest) (<-chan StreamEvent, *StreamResult, error)) *MockClient {
+	m.streamJSONFunc = fn
 	return m
 }
 
@@ -91,14 +91,14 @@ func (m *MockClient) Complete(ctx context.Context, req CompletionRequest) (*Comp
 	}, nil
 }
 
-// Stream implements Client.
-func (m *MockClient) Stream(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error) {
+// StreamJSON implements Client.
+func (m *MockClient) StreamJSON(ctx context.Context, req CompletionRequest) (<-chan StreamEvent, *StreamResult, error) {
 	m.mu.Lock()
 	m.Calls = append(m.Calls, req)
 
 	// Use custom function if provided
-	if m.streamFunc != nil {
-		fn := m.streamFunc
+	if m.streamJSONFunc != nil {
+		fn := m.streamJSONFunc
 		m.mu.Unlock()
 		return fn(ctx, req)
 	}
@@ -107,7 +107,7 @@ func (m *MockClient) Stream(ctx context.Context, req CompletionRequest) (<-chan 
 	if m.err != nil {
 		err := m.err
 		m.mu.Unlock()
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Get response
@@ -118,24 +118,63 @@ func (m *MockClient) Stream(ctx context.Context, req CompletionRequest) (<-chan 
 	}
 	m.mu.Unlock()
 
-	ch := make(chan StreamChunk)
-	go func() {
-		defer close(ch)
+	events := make(chan StreamEvent)
+	result := newStreamResult()
 
-		// Send response as single chunk (for simplicity)
+	go func() {
+		defer close(events)
+
+		// Check context before sending
 		select {
 		case <-ctx.Done():
-			ch <- StreamChunk{Error: ctx.Err()}
+			events <- StreamEvent{Type: StreamEventError, Error: ctx.Err()}
+			result.complete(nil, ctx.Err())
 			return
-		case ch <- StreamChunk{
-			Content: response,
-			Done:    true,
-			Usage:   &TokenUsage{InputTokens: 10, OutputTokens: len(response) / 4, TotalTokens: 10 + len(response)/4},
-		}:
+		default:
 		}
+
+		// Send init event
+		events <- StreamEvent{
+			Type:      StreamEventInit,
+			SessionID: "mock-session-id",
+			Init: &InitEvent{
+				SessionID: "mock-session-id",
+				Model:     "mock-model",
+			},
+		}
+
+		// Send assistant event with content
+		events <- StreamEvent{
+			Type:      StreamEventAssistant,
+			SessionID: "mock-session-id",
+			Assistant: &AssistantEvent{
+				MessageID: "mock-msg-id",
+				Text:      response,
+				Model:     "mock-model",
+				Usage: MessageUsage{
+					InputTokens:  10,
+					OutputTokens: len(response) / 4,
+				},
+			},
+		}
+
+		// Complete with result
+		resultEvent := &ResultEvent{
+			Subtype:      "success",
+			IsError:      false,
+			Result:       response,
+			SessionID:    "mock-session-id",
+			NumTurns:     1,
+			TotalCostUSD: 0.001,
+			Usage: ResultUsage{
+				InputTokens:  10,
+				OutputTokens: len(response) / 4,
+			},
+		}
+		result.complete(resultEvent, nil)
 	}()
 
-	return ch, nil
+	return events, result, nil
 }
 
 // Reset clears the call history and response index.
@@ -146,7 +185,7 @@ func (m *MockClient) Reset() {
 	m.responseIdx = 0
 }
 
-// CallCount returns the number of times Complete or Stream was called.
+// CallCount returns the number of times Complete or StreamJSON was called.
 func (m *MockClient) CallCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/randalmurphal/llmkit/claudeconfig"
@@ -232,47 +233,72 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req provider.Request
 		}
 	}
 
-	// Call underlying implementation
-	claudeStream, err := a.cli.Stream(ctx, claudeReq)
+	// Call underlying StreamJSON implementation
+	events, result, err := a.cli.StreamJSON(ctx, claudeReq)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert stream chunks
+	// Convert stream events to provider chunks
 	providerStream := make(chan provider.StreamChunk)
 	go func() {
 		defer close(providerStream)
-		for chunk := range claudeStream {
-			providerChunk := provider.StreamChunk{
-				Content: chunk.Content,
-				Done:    chunk.Done,
-				Error:   chunk.Error,
+
+		var totalUsage provider.TokenUsage
+
+		for event := range events {
+			if event.Error != nil {
+				providerStream <- provider.StreamChunk{Error: event.Error}
+				return
 			}
 
-			// Convert tool calls
-			if len(chunk.ToolCalls) > 0 {
-				providerChunk.ToolCalls = make([]provider.ToolCall, len(chunk.ToolCalls))
-				for i, tc := range chunk.ToolCalls {
-					providerChunk.ToolCalls[i] = provider.ToolCall{
-						ID:        tc.ID,
-						Name:      tc.Name,
-						Arguments: tc.Arguments,
+			if event.Type == StreamEventAssistant && event.Assistant != nil {
+				// Emit text content
+				if event.Assistant.Text != "" {
+					providerStream <- provider.StreamChunk{Content: event.Assistant.Text}
+				}
+
+				// Convert tool calls from content blocks
+				var toolCalls []provider.ToolCall
+				for _, block := range event.Assistant.Content {
+					if block.Type == "tool_use" {
+						toolCalls = append(toolCalls, provider.ToolCall{
+							ID:        block.ID,
+							Name:      block.Name,
+							Arguments: block.Input,
+						})
 					}
 				}
-			}
-
-			// Convert usage
-			if chunk.Usage != nil {
-				providerChunk.Usage = &provider.TokenUsage{
-					InputTokens:              chunk.Usage.InputTokens,
-					OutputTokens:             chunk.Usage.OutputTokens,
-					TotalTokens:              chunk.Usage.TotalTokens,
-					CacheCreationInputTokens: chunk.Usage.CacheCreationInputTokens,
-					CacheReadInputTokens:     chunk.Usage.CacheReadInputTokens,
+				if len(toolCalls) > 0 {
+					providerStream <- provider.StreamChunk{ToolCalls: toolCalls}
 				}
-			}
 
-			providerStream <- providerChunk
+				// Accumulate usage
+				totalUsage.InputTokens += event.Assistant.Usage.InputTokens
+				totalUsage.OutputTokens += event.Assistant.Usage.OutputTokens
+				totalUsage.CacheCreationInputTokens += event.Assistant.Usage.CacheCreationInputTokens
+				totalUsage.CacheReadInputTokens += event.Assistant.Usage.CacheReadInputTokens
+			}
+		}
+
+		// Wait for final result and emit done chunk with usage
+		final, err := result.Wait(ctx)
+		if err != nil {
+			providerStream <- provider.StreamChunk{Error: err, Done: true}
+			return
+		}
+
+		totalUsage.TotalTokens = totalUsage.InputTokens + totalUsage.OutputTokens
+		providerStream <- provider.StreamChunk{
+			Done:  true,
+			Usage: &totalUsage,
+		}
+
+		// Handle error result
+		if final.IsError {
+			providerStream <- provider.StreamChunk{
+				Error: fmt.Errorf("streaming failed: %s", final.Result),
+			}
 		}
 	}()
 

@@ -123,28 +123,32 @@ func TestMockClient_CustomCompleteFunc(t *testing.T) {
 	assert.Equal(t, "Echo: test", resp.Content)
 }
 
-func TestMockClient_Stream(t *testing.T) {
+func TestMockClient_StreamJSON(t *testing.T) {
 	mock := claude.NewMockClient("streaming response")
 
-	ch, err := mock.Stream(context.Background(), claude.CompletionRequest{})
+	events, result, err := mock.StreamJSON(context.Background(), claude.CompletionRequest{})
 	require.NoError(t, err)
 
-	var chunks []claude.StreamChunk
-	for chunk := range ch {
-		chunks = append(chunks, chunk)
+	var content string
+	for event := range events {
+		if event.Type == claude.StreamEventAssistant && event.Assistant != nil {
+			content += event.Assistant.Text
+		}
 	}
 
-	require.Len(t, chunks, 1)
-	assert.Equal(t, "streaming response", chunks[0].Content)
-	assert.True(t, chunks[0].Done)
-	assert.NotNil(t, chunks[0].Usage)
+	assert.Equal(t, "streaming response", content)
+
+	// Verify result
+	final, err := result.Wait(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "success", final.Subtype)
 }
 
-func TestMockClient_StreamWithError(t *testing.T) {
+func TestMockClient_StreamJSONWithError(t *testing.T) {
 	expectedErr := errors.New("stream error")
 	mock := claude.NewMockClient("").WithError(expectedErr)
 
-	_, err := mock.Stream(context.Background(), claude.CompletionRequest{})
+	_, _, err := mock.StreamJSON(context.Background(), claude.CompletionRequest{})
 	assert.Equal(t, expectedErr, err)
 }
 

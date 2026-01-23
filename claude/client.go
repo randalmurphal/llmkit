@@ -35,8 +35,8 @@ type Client interface {
 	// The context controls cancellation and timeouts.
 	Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error)
 
-	// Stream sends a request and returns a channel of response chunks.
-	// The channel is closed when streaming completes (check chunk.Done).
-	// Errors during streaming are returned via chunk.Error.
-	Stream(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error)
+	// StreamJSON sends a request and returns streaming events plus a result future.
+	// Events include init (session_id), assistant (per-message content/usage), result (final totals).
+	// The channel closes when streaming completes. Use result.Wait() for the final ResultEvent.
+	StreamJSON(ctx context.Context, req CompletionRequest) (<-chan StreamEvent, *StreamResult, error)
 }
