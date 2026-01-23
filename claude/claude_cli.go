@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -426,6 +427,11 @@ func (c *ClaudeCLI) StreamJSON(ctx context.Context, req CompletionRequest) (<-ch
 	c.setupCmd(cmd)
 	cmd.Stdin = nil // Use /dev/null to prevent TTY/raw mode errors in containers
 
+	// Run in separate process group so we can kill all child processes on cancel.
+	// Claude Code spawns subprocesses (test runners, build tools, MCP servers) that
+	// would otherwise become orphaned when the main process is killed.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, nil, NewError("stream_json", fmt.Errorf("create stdout pipe: %w", err), false)
@@ -531,6 +537,10 @@ func (c *ClaudeCLI) processStreamJSON(
 		select {
 		case events <- *event:
 		case <-ctx.Done():
+			// Kill entire process group to clean up child processes
+			if cmd.Process != nil {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
 			result.complete(nil, ctx.Err())
 			return
 		}
