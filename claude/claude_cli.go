@@ -83,6 +83,30 @@ type ClaudeCLI struct {
 	mcpConfigPaths  []string                   // --mcp-config paths (files or JSON strings)
 	mcpServers      map[string]MCPServerConfig // Inline server definitions
 	strictMCPConfig bool                       // --strict-mcp-config flag
+
+	// Agent configuration
+	agent      string // --agent: Use existing agent by name
+	agentsJSON string // --agents: Define custom agents (JSON)
+
+	// Prompt files
+	systemPromptFile       string // --system-prompt-file: Load system prompt from file
+	appendSystemPromptFile string // --append-system-prompt-file: Load append prompt from file
+
+	// Session forking
+	forkSession bool // --fork-session: Fork session instead of reusing
+
+	// Streaming control
+	verbose                bool   // --verbose: Enable verbose output
+	includePartialMessages bool   // --include-partial-messages: Include partial streaming events
+	inputFormat            string // --input-format: Input format for streaming
+
+	// Settings and plugins
+	settings  string   // --settings: Load settings file or JSON
+	pluginDir []string // --plugin-dir: Plugin directories (repeatable)
+
+	// Debug and development
+	debug                string // --debug: Debug mode with optional filter
+	disableSlashCommands bool   // --disable-slash-commands: Disable all skills
 }
 
 // ClaudeOption configures ClaudeCLI.
@@ -280,6 +304,88 @@ func WithMCPServers(servers map[string]MCPServerConfig) ClaudeOption {
 // are used, ignoring any other configured MCP servers.
 func WithStrictMCPConfig() ClaudeOption {
 	return func(c *ClaudeCLI) { c.strictMCPConfig = true }
+}
+
+// WithAgent sets an existing agent to use for the session.
+// The agent must be defined in the project's .claude/settings.json or user settings.
+func WithAgent(name string) ClaudeOption {
+	return func(c *ClaudeCLI) { c.agent = name }
+}
+
+// WithAgentsJSON defines custom agents inline using JSON format.
+// The JSON should match the --agents flag format:
+//
+//	{
+//	  "agent-name": {
+//	    "description": "When to use (required)",
+//	    "prompt": "System prompt (required)",
+//	    "tools": ["Read", "Edit"],  // optional
+//	    "model": "sonnet"           // optional
+//	  }
+//	}
+func WithAgentsJSON(json string) ClaudeOption {
+	return func(c *ClaudeCLI) { c.agentsJSON = json }
+}
+
+// WithSystemPromptFile loads the system prompt from a file, replacing the default.
+// This is useful for version-controlled prompt templates.
+// Note: Only works in print mode (-p).
+func WithSystemPromptFile(path string) ClaudeOption {
+	return func(c *ClaudeCLI) { c.systemPromptFile = path }
+}
+
+// WithAppendSystemPromptFile loads additional system prompt content from a file.
+// The content is appended to the default system prompt.
+// Note: Only works in print mode (-p).
+func WithAppendSystemPromptFile(path string) ClaudeOption {
+	return func(c *ClaudeCLI) { c.appendSystemPromptFile = path }
+}
+
+// WithForkSession creates a new session ID when resuming instead of reusing the original.
+// Use with WithResume to fork from an existing session.
+func WithForkSession() ClaudeOption {
+	return func(c *ClaudeCLI) { c.forkSession = true }
+}
+
+// WithVerbose enables verbose output for debugging.
+func WithVerbose() ClaudeOption {
+	return func(c *ClaudeCLI) { c.verbose = true }
+}
+
+// WithIncludePartialMessages includes partial streaming events in output.
+// Requires print mode with stream-json output format.
+func WithIncludePartialMessages() ClaudeOption {
+	return func(c *ClaudeCLI) { c.includePartialMessages = true }
+}
+
+// WithInputFormat sets the input format for streaming.
+// Valid values: "text" (default), "stream-json" (realtime streaming input).
+func WithInputFormat(format string) ClaudeOption {
+	return func(c *ClaudeCLI) { c.inputFormat = format }
+}
+
+// WithSettings loads additional settings from a file path or JSON string.
+func WithSettings(pathOrJSON string) ClaudeOption {
+	return func(c *ClaudeCLI) { c.settings = pathOrJSON }
+}
+
+// WithPluginDir adds a plugin directory to load for this session.
+// Can be called multiple times for multiple directories.
+func WithPluginDir(path string) ClaudeOption {
+	return func(c *ClaudeCLI) {
+		c.pluginDir = append(c.pluginDir, path)
+	}
+}
+
+// WithDebug enables debug mode with an optional category filter.
+// Examples: "api,hooks" to show only those categories, "!statsig,!file" to exclude.
+func WithDebug(filter string) ClaudeOption {
+	return func(c *ClaudeCLI) { c.debug = filter }
+}
+
+// WithDisableSlashCommands disables all skills and slash commands for this session.
+func WithDisableSlashCommands() ClaudeOption {
+	return func(c *ClaudeCLI) { c.disableSlashCommands = true }
 }
 
 // CLIResponse represents the full JSON response from Claude CLI.
@@ -486,6 +592,21 @@ func (c *ClaudeCLI) buildArgsForStreamJSON(req CompletionRequest) []string {
 	// MCP configuration
 	args = c.appendMCPArgs(args)
 
+	// Agent configuration
+	args = c.appendAgentArgs(args)
+
+	// Prompt file configuration
+	args = c.appendPromptFileArgs(args)
+
+	// Streaming control (verbose already added above for stream-json)
+	args = c.appendStreamingArgs(args)
+
+	// Settings and plugins
+	args = c.appendSettingsArgs(args)
+
+	// Debug and development
+	args = c.appendDebugArgs(args)
+
 	// Permissions and settings
 	args = c.appendPermissionArgs(args)
 
@@ -681,6 +802,21 @@ func (c *ClaudeCLI) buildArgsWithFormat(req CompletionRequest, format OutputForm
 	// MCP configuration
 	args = c.appendMCPArgs(args)
 
+	// Agent configuration
+	args = c.appendAgentArgs(args)
+
+	// Prompt file configuration
+	args = c.appendPromptFileArgs(args)
+
+	// Streaming control
+	args = c.appendStreamingArgs(args)
+
+	// Settings and plugins
+	args = c.appendSettingsArgs(args)
+
+	// Debug and development
+	args = c.appendDebugArgs(args)
+
 	// Permissions and settings
 	args = c.appendPermissionArgs(args)
 
@@ -720,6 +856,9 @@ func (c *ClaudeCLI) appendSessionArgs(args []string) []string {
 	}
 	if c.resumeSessionID != "" {
 		args = append(args, claudecontract.FlagResume, c.resumeSessionID)
+	}
+	if c.forkSession {
+		args = append(args, claudecontract.FlagForkSession)
 	}
 	if c.noSessionPersistence {
 		args = append(args, claudecontract.FlagNoSessionPersistence)
@@ -832,6 +971,68 @@ func (c *ClaudeCLI) appendMCPArgs(args []string) []string {
 		args = append(args, claudecontract.FlagStrictMCPConfig)
 	}
 
+	return args
+}
+
+// appendAgentArgs adds agent configuration arguments.
+func (c *ClaudeCLI) appendAgentArgs(args []string) []string {
+	// Use existing agent by name
+	if c.agent != "" {
+		args = append(args, claudecontract.FlagAgent, c.agent)
+	}
+
+	// Define custom agents inline via JSON
+	if c.agentsJSON != "" {
+		args = append(args, claudecontract.FlagAgents, c.agentsJSON)
+	}
+
+	return args
+}
+
+// appendPromptFileArgs adds system prompt file arguments.
+func (c *ClaudeCLI) appendPromptFileArgs(args []string) []string {
+	if c.systemPromptFile != "" {
+		args = append(args, claudecontract.FlagSystemPromptFile, c.systemPromptFile)
+	}
+	if c.appendSystemPromptFile != "" {
+		args = append(args, claudecontract.FlagAppendSystemPromptFile, c.appendSystemPromptFile)
+	}
+	return args
+}
+
+// appendStreamingArgs adds streaming control arguments.
+func (c *ClaudeCLI) appendStreamingArgs(args []string) []string {
+	if c.verbose {
+		args = append(args, claudecontract.FlagVerbose)
+	}
+	if c.includePartialMessages {
+		args = append(args, claudecontract.FlagIncludePartialMessages)
+	}
+	if c.inputFormat != "" {
+		args = append(args, claudecontract.FlagInputFormat, c.inputFormat)
+	}
+	return args
+}
+
+// appendSettingsArgs adds settings and plugin arguments.
+func (c *ClaudeCLI) appendSettingsArgs(args []string) []string {
+	if c.settings != "" {
+		args = append(args, claudecontract.FlagSettings, c.settings)
+	}
+	for _, dir := range c.pluginDir {
+		args = append(args, claudecontract.FlagPluginDir, dir)
+	}
+	return args
+}
+
+// appendDebugArgs adds debug and development arguments.
+func (c *ClaudeCLI) appendDebugArgs(args []string) []string {
+	if c.debug != "" {
+		args = append(args, claudecontract.FlagDebug, c.debug)
+	}
+	if c.disableSlashCommands {
+		args = append(args, claudecontract.FlagDisableSlashCommands)
+	}
 	return args
 }
 
