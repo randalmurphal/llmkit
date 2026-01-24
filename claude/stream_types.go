@@ -92,11 +92,13 @@ type AssistantEvent struct {
 
 // ContentBlock represents a block of content in a message.
 type ContentBlock struct {
-	Type  string          `json:"type"` // "text", "tool_use", "tool_result"
-	Text  string          `json:"text,omitempty"`
-	ID    string          `json:"id,omitempty"`    // For tool_use
-	Name  string          `json:"name,omitempty"`  // For tool_use
-	Input json.RawMessage `json:"input,omitempty"` // For tool_use
+	Type      string          `json:"type"` // "text", "tool_use", "tool_result", "thinking"
+	Text      string          `json:"text,omitempty"`
+	ID        string          `json:"id,omitempty"`        // For tool_use
+	Name      string          `json:"name,omitempty"`      // For tool_use
+	Input     json.RawMessage `json:"input,omitempty"`     // For tool_use
+	Thinking  string          `json:"thinking,omitempty"`  // For thinking blocks (extended thinking)
+	Signature string          `json:"signature,omitempty"` // For thinking blocks (cryptographic signature)
 }
 
 // MessageUsage tracks token usage for a single message.

@@ -90,11 +90,13 @@ type ClaudeMessage struct {
 
 // ContentBlock represents a content block in a message.
 type ContentBlock struct {
-	Type  string          `json:"type"`            // "text", "tool_use", "tool_result"
-	Text  string          `json:"text,omitempty"`  // For text blocks
-	ID    string          `json:"id,omitempty"`    // For tool_use blocks
-	Name  string          `json:"name,omitempty"`  // Tool name for tool_use
-	Input json.RawMessage `json:"input,omitempty"` // Tool input for tool_use
+	Type      string          `json:"type"`                // "text", "tool_use", "tool_result", "thinking"
+	Text      string          `json:"text,omitempty"`      // For text blocks
+	ID        string          `json:"id,omitempty"`        // For tool_use blocks
+	Name      string          `json:"name,omitempty"`      // Tool name for tool_use
+	Input     json.RawMessage `json:"input,omitempty"`     // Tool input for tool_use
+	Thinking  string          `json:"thinking,omitempty"`  // For thinking blocks (extended thinking)
+	Signature string          `json:"signature,omitempty"` // For thinking blocks (cryptographic signature)
 }
 
 // MessageUsage tracks token usage for a single message.
@@ -338,14 +340,16 @@ type TodoItem struct {
 // JSONLContentBlock represents a content block in JSONL message content.
 // This is used when fully parsing the content array.
 type JSONLContentBlock struct {
-	Type      string          `json:"type"`                 // "text", "tool_use", "tool_result"
-	Text      string          `json:"text,omitempty"`       // For text blocks
-	ID        string          `json:"id,omitempty"`         // For tool_use blocks
-	Name      string          `json:"name,omitempty"`       // Tool name for tool_use
-	Input     json.RawMessage `json:"input,omitempty"`      // Tool input for tool_use
+	Type      string          `json:"type"`                  // "text", "tool_use", "tool_result", "thinking"
+	Text      string          `json:"text,omitempty"`        // For text blocks
+	ID        string          `json:"id,omitempty"`          // For tool_use blocks
+	Name      string          `json:"name,omitempty"`        // Tool name for tool_use
+	Input     json.RawMessage `json:"input,omitempty"`       // Tool input for tool_use
 	ToolUseID string          `json:"tool_use_id,omitempty"` // For tool_result blocks
-	Content   json.RawMessage `json:"content,omitempty"`    // Tool result content (tool_result blocks)
-	IsError   bool            `json:"is_error,omitempty"`   // Whether tool execution failed
+	Content   json.RawMessage `json:"content,omitempty"`     // Tool result content (tool_result blocks)
+	IsError   bool            `json:"is_error,omitempty"`    // Whether tool execution failed
+	Thinking  string          `json:"thinking,omitempty"`    // For thinking blocks (extended thinking)
+	Signature string          `json:"signature,omitempty"`   // For thinking blocks (cryptographic signature)
 }
 
 // ParseJSONLMessage parses a single line from a Claude Code JSONL file.
