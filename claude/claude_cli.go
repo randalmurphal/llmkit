@@ -381,6 +381,7 @@ func (c *ClaudeCLI) resolvedPath() string {
 // Complete implements Client.
 // This is a convenience wrapper around StreamJSON that collects all events
 // and returns a single CompletionResponse.
+// If req.OnEvent is set, it will be called for each streaming event.
 func (c *ClaudeCLI) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
 	start := time.Now()
 
@@ -389,7 +390,7 @@ func (c *ClaudeCLI) Complete(ctx context.Context, req CompletionRequest) (*Compl
 		return nil, err
 	}
 
-	resp, err := StreamToComplete(ctx, events, result)
+	resp, err := StreamToCompleteWithCallback(ctx, events, result, req.OnEvent)
 	if err != nil {
 		return nil, err
 	}

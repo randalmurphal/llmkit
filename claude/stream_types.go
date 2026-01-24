@@ -236,12 +236,24 @@ func (sr *StreamResult) complete(result *ResultEvent, err error) {
 // StreamToComplete converts streaming events to a CompletionResponse.
 // This drains the events channel and waits for the final result.
 func StreamToComplete(ctx context.Context, events <-chan StreamEvent, result *StreamResult) (*CompletionResponse, error) {
+	return StreamToCompleteWithCallback(ctx, events, result, nil)
+}
+
+// StreamToCompleteWithCallback converts streaming events to a CompletionResponse,
+// calling the optional onEvent callback for each event as it arrives.
+// Use this to capture transcripts in real-time, track progress, or log activity.
+func StreamToCompleteWithCallback(ctx context.Context, events <-chan StreamEvent, result *StreamResult, onEvent func(StreamEvent)) (*CompletionResponse, error) {
 	var content strings.Builder
 	var sessionID string
 	var model string
 	var totalUsage TokenUsage
 
 	for event := range events {
+		// Call event handler first (before any processing) so caller sees raw events
+		if onEvent != nil {
+			onEvent(event)
+		}
+
 		if event.SessionID != "" && sessionID == "" {
 			sessionID = event.SessionID
 		}

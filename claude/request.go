@@ -32,6 +32,13 @@ type CompletionRequest struct {
 	// When set, Claude will output valid JSON conforming to this schema.
 	// This overrides any client-level schema set via WithJSONSchema().
 	JSONSchema string `json:"json_schema,omitempty"`
+
+	// OnEvent is called for each streaming event during execution.
+	// Use this to capture transcripts in real-time, track progress, or log activity.
+	// Events include: StreamEventInit, StreamEventAssistant, StreamEventResult, StreamEventHook.
+	// If nil, events are still processed internally but not exposed to caller.
+	// This callback is invoked synchronously - keep handlers fast to avoid blocking.
+	OnEvent func(StreamEvent) `json:"-"`
 }
 
 // Message is a conversation turn.
