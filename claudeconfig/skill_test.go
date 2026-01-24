@@ -45,7 +45,7 @@ Use this skill for testing.
 
 	assert.Equal(t, "Test Skill", skill.Name)
 	assert.Equal(t, "A test skill for unit testing", skill.Description)
-	assert.Equal(t, []string{"Read", "Bash"}, skill.AllowedTools)
+	assert.Equal(t, StringOrArray{"Read", "Bash"}, skill.AllowedTools)
 	assert.Equal(t, "1.0", skill.Version)
 	assert.Contains(t, skill.Content, "# Test Skill")
 	assert.Contains(t, skill.Content, "Use this skill for testing.")

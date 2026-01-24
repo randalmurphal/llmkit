@@ -13,6 +13,7 @@ type StreamEventType string
 const (
 	StreamEventInit      StreamEventType = "init"
 	StreamEventAssistant StreamEventType = "assistant"
+	StreamEventUser      StreamEventType = "user"
 	StreamEventResult    StreamEventType = "result"
 	StreamEventHook      StreamEventType = "hook"
 	StreamEventError     StreamEventType = "error"
@@ -35,6 +36,10 @@ type StreamEvent struct {
 
 	// Result is populated when Type == StreamEventResult.
 	Result *ResultEvent
+
+	// User is populated when Type == StreamEventUser.
+	// Contains tool results from tool executions.
+	User *UserEvent
 
 	// Hook is populated when Type == StreamEventHook.
 	Hook *HookEvent
@@ -177,6 +182,139 @@ type HookEvent struct {
 	Stdout    string `json:"stdout"`
 	Stderr    string `json:"stderr"`
 	ExitCode  int    `json:"exit_code"`
+}
+
+// UserEvent contains tool execution results.
+// Emitted after a tool is executed, containing the tool's output.
+type UserEvent struct {
+	// SessionID is the session identifier.
+	SessionID string `json:"session_id"`
+
+	// Message contains the tool result content.
+	Message UserEventMessage `json:"message"`
+
+	// ParentToolUseID links this result to a subagent's tool use (if any).
+	ParentToolUseID *string `json:"parent_tool_use_id"`
+
+	// ToolUseResultRaw contains the raw tool_use_result field.
+	// Can be a string (error message) or object (structured result).
+	// Use GetToolUseResult() to get the parsed value.
+	ToolUseResultRaw json.RawMessage `json:"tool_use_result,omitempty"`
+
+	// UUID is the unique event identifier.
+	UUID string `json:"uuid,omitempty"`
+}
+
+// GetToolUseResult parses ToolUseResultRaw and returns the structured result.
+// Returns nil if the field is a string (error message) or not present.
+func (u *UserEvent) GetToolUseResult() *ToolUseResult {
+	if len(u.ToolUseResultRaw) == 0 {
+		return nil
+	}
+
+	// Check if it's a string (starts with quote)
+	if u.ToolUseResultRaw[0] == '"' {
+		return nil
+	}
+
+	// Try to parse as struct
+	var result ToolUseResult
+	if err := json.Unmarshal(u.ToolUseResultRaw, &result); err != nil {
+		return nil
+	}
+	return &result
+}
+
+// GetToolUseResultError returns the error string if ToolUseResultRaw is a string.
+// Returns empty string if not an error or not present.
+func (u *UserEvent) GetToolUseResultError() string {
+	if len(u.ToolUseResultRaw) == 0 {
+		return ""
+	}
+
+	// Check if it's a string (starts with quote)
+	if u.ToolUseResultRaw[0] != '"' {
+		return ""
+	}
+
+	var errStr string
+	if err := json.Unmarshal(u.ToolUseResultRaw, &errStr); err != nil {
+		return ""
+	}
+	return errStr
+}
+
+// UserEventMessage represents the message content in a user event (tool result).
+type UserEventMessage struct {
+	Role    string              `json:"role"`
+	Content []ToolResultContent `json:"content"`
+}
+
+// ToolResultContent represents a tool result in the user message content.
+type ToolResultContent struct {
+	Type      string `json:"type"`        // "tool_result"
+	ToolUseID string `json:"tool_use_id"` // Matches the tool_use block's ID
+	IsError   bool   `json:"is_error,omitempty"` // True if tool execution failed
+
+	// ContentRaw holds the raw content field which can be:
+	// - A string (simple tool result)
+	// - An array of objects (complex result like subagent output)
+	ContentRaw json.RawMessage `json:"content"`
+}
+
+// GetContent returns the content as a string.
+// For simple results, returns the string directly.
+// For complex results (arrays), returns the concatenated text.
+func (t *ToolResultContent) GetContent() string {
+	if len(t.ContentRaw) == 0 {
+		return ""
+	}
+
+	// Try string first (most common)
+	if t.ContentRaw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(t.ContentRaw, &s); err == nil {
+			return s
+		}
+	}
+
+	// Try array of content blocks (for subagent results)
+	if t.ContentRaw[0] == '[' {
+		var blocks []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(t.ContentRaw, &blocks); err == nil {
+			var result strings.Builder
+			for i, b := range blocks {
+				if i > 0 {
+					result.WriteString("\n")
+				}
+				result.WriteString(b.Text)
+			}
+			return result.String()
+		}
+	}
+
+	// Fallback: return raw JSON as string
+	return string(t.ContentRaw)
+}
+
+// ToolUseResult contains structured data about tool execution.
+type ToolUseResult struct {
+	Type string `json:"type"` // "text", "image", etc.
+
+	// File is populated for file read operations.
+	File *FileResult `json:"file,omitempty"`
+}
+
+// FileResult contains data from a file read operation.
+type FileResult struct {
+	FilePath   string `json:"filePath"`
+	Content    string `json:"content"`
+	NumLines   int    `json:"numLines"`
+	StartLine  int    `json:"startLine"`
+	TotalLines int    `json:"totalLines"`
 }
 
 // StreamResult is a future that resolves when streaming completes.

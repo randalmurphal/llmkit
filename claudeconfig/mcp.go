@@ -6,6 +6,8 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+
+	"github.com/randalmurphal/llmkit/claudecontract"
 )
 
 // MCPServer represents an MCP server configuration.
@@ -233,7 +235,7 @@ func saveMCPConfigFile(path string, config *MCPConfig) error {
 
 // MCPConfigPath returns the path to the project MCP config file.
 func MCPConfigPath(projectRoot string) string {
-	return filepath.Join(projectRoot, ".mcp.json")
+	return filepath.Join(projectRoot, claudecontract.FileMCPConfig)
 }
 
 // MCPConfigExists checks if a project MCP config file exists.

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/randalmurphal/llmkit/claudecontract"
 )
 
 // PluginService manages plugin configurations across global and project scopes.
@@ -130,7 +132,7 @@ func (s *PluginService) Get(name string, scope PluginScope) (*Plugin, error) {
 		if s.projectRoot == "" {
 			return nil, fmt.Errorf("no project root configured")
 		}
-		claudeDir = filepath.Join(s.projectRoot, ".claude")
+		claudeDir = filepath.Join(s.projectRoot, claudecontract.DirClaude)
 	default:
 		return nil, fmt.Errorf("unknown scope: %s", scope)
 	}

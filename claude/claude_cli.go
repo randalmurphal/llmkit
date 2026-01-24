@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/randalmurphal/llmkit/claudecontract"
 )
 
 // OutputFormat specifies the CLI output format.
@@ -457,11 +459,11 @@ func (c *ClaudeCLI) buildArgsForStreamJSON(req CompletionRequest) []string {
 	var args []string
 
 	// Always use --print for non-interactive mode
-	args = append(args, "--print")
+	args = append(args, claudecontract.FlagPrint)
 
 	// Stream-json format with verbose for full events
-	args = append(args, "--output-format", "stream-json")
-	args = append(args, "--verbose")
+	args = append(args, claudecontract.FlagOutputFormat, claudecontract.FormatStreamJSON)
+	args = append(args, claudecontract.FlagVerbose)
 
 	// JSON schema support (structured_output appears in result event)
 	schema := c.jsonSchema
@@ -469,7 +471,7 @@ func (c *ClaudeCLI) buildArgsForStreamJSON(req CompletionRequest) []string {
 		schema = req.JSONSchema
 	}
 	if schema != "" {
-		args = append(args, "--json-schema", schema)
+		args = append(args, claudecontract.FlagJSONSchema, schema)
 	}
 
 	// Session management
@@ -585,14 +587,14 @@ func parseStreamEvent(data []byte) (*StreamEvent, error) {
 
 	// Parse type-specific data
 	switch base.Type {
-	case "system":
-		if base.Subtype == "init" {
+	case claudecontract.EventTypeSystem:
+		if base.Subtype == claudecontract.SubtypeInit {
 			event.Type = StreamEventInit
 			event.Init = &InitEvent{}
 			if err := json.Unmarshal(data, event.Init); err != nil {
 				return nil, err
 			}
-		} else if base.Subtype == "hook_response" {
+		} else if base.Subtype == claudecontract.SubtypeHookResponse {
 			event.Type = StreamEventHook
 			event.Hook = &HookEvent{}
 			if err := json.Unmarshal(data, event.Hook); err != nil {
@@ -600,7 +602,7 @@ func parseStreamEvent(data []byte) (*StreamEvent, error) {
 			}
 		}
 
-	case "assistant":
+	case claudecontract.EventTypeAssistant:
 		event.Type = StreamEventAssistant
 		var assistantWrapper struct {
 			Message struct {
@@ -627,13 +629,20 @@ func parseStreamEvent(data []byte) (*StreamEvent, error) {
 		// Compute convenience text field
 		var text strings.Builder
 		for _, block := range msg.Content {
-			if block.Type == "text" {
+			if block.Type == claudecontract.ContentTypeText {
 				text.WriteString(block.Text)
 			}
 		}
 		event.Assistant.Text = text.String()
 
-	case "result":
+	case claudecontract.EventTypeUser:
+		event.Type = StreamEventUser
+		event.User = &UserEvent{}
+		if err := json.Unmarshal(data, event.User); err != nil {
+			return nil, err
+		}
+
+	case claudecontract.EventTypeResult:
 		event.Type = StreamEventResult
 		event.Result = &ResultEvent{}
 		if err := json.Unmarshal(data, event.Result); err != nil {
@@ -655,7 +664,7 @@ func (c *ClaudeCLI) buildArgsWithFormat(req CompletionRequest, format OutputForm
 	var args []string
 
 	// Always use --print for non-interactive mode
-	args = append(args, "--print")
+	args = append(args, claudecontract.FlagPrint)
 
 	// Output format and schema (request schema overrides client schema)
 	args = c.appendOutputArgs(args, format, req.JSONSchema)
@@ -693,10 +702,10 @@ func (c *ClaudeCLI) appendOutputArgs(args []string, format OutputFormat, request
 
 	// When schema is set, REQUIRE JSON output format (--json-schema only works with JSON)
 	if schema != "" {
-		args = append(args, "--output-format", string(OutputFormatJSON))
-		args = append(args, "--json-schema", schema)
+		args = append(args, claudecontract.FlagOutputFormat, string(OutputFormatJSON))
+		args = append(args, claudecontract.FlagJSONSchema, schema)
 	} else if format != "" && format != OutputFormatText {
-		args = append(args, "--output-format", string(format))
+		args = append(args, claudecontract.FlagOutputFormat, string(format))
 	}
 	return args
 }
@@ -704,16 +713,16 @@ func (c *ClaudeCLI) appendOutputArgs(args []string, format OutputFormat, request
 // appendSessionArgs adds session management arguments.
 func (c *ClaudeCLI) appendSessionArgs(args []string) []string {
 	if c.sessionID != "" {
-		args = append(args, "--session-id", c.sessionID)
+		args = append(args, claudecontract.FlagSessionID, c.sessionID)
 	}
 	if c.continueSession {
-		args = append(args, "--continue")
+		args = append(args, claudecontract.FlagContinue)
 	}
 	if c.resumeSessionID != "" {
-		args = append(args, "--resume", c.resumeSessionID)
+		args = append(args, claudecontract.FlagResume, c.resumeSessionID)
 	}
 	if c.noSessionPersistence {
-		args = append(args, "--no-session-persistence")
+		args = append(args, claudecontract.FlagNoSessionPersistence)
 	}
 	return args
 }
@@ -722,12 +731,12 @@ func (c *ClaudeCLI) appendSessionArgs(args []string) []string {
 func (c *ClaudeCLI) appendModelArgs(args []string, req CompletionRequest) []string {
 	// System prompt handling
 	if c.systemPrompt != "" {
-		args = append(args, "--system-prompt", c.systemPrompt)
+		args = append(args, claudecontract.FlagSystemPrompt, c.systemPrompt)
 	} else if req.SystemPrompt != "" {
-		args = append(args, "--system-prompt", req.SystemPrompt)
+		args = append(args, claudecontract.FlagSystemPrompt, req.SystemPrompt)
 	}
 	if c.appendSystemPrompt != "" {
-		args = append(args, "--append-system-prompt", c.appendSystemPrompt)
+		args = append(args, claudecontract.FlagAppendSystemPrompt, c.appendSystemPrompt)
 	}
 
 	// Model priority: request > client default
@@ -736,12 +745,12 @@ func (c *ClaudeCLI) appendModelArgs(args []string, req CompletionRequest) []stri
 		model = req.Model
 	}
 	if model != "" {
-		args = append(args, "--model", model)
+		args = append(args, claudecontract.FlagModel, model)
 	}
 
 	// Fallback model
 	if c.fallbackModel != "" {
-		args = append(args, "--fallback-model", c.fallbackModel)
+		args = append(args, claudecontract.FlagFallbackModel, c.fallbackModel)
 	}
 
 	// NOTE: MaxTokens is not supported by Claude CLI - it's an agentic interface
@@ -750,7 +759,7 @@ func (c *ClaudeCLI) appendModelArgs(args []string, req CompletionRequest) []stri
 
 	// Budget limit (only flag available for limiting Claude CLI usage)
 	if c.maxBudgetUSD > 0 {
-		args = append(args, "--max-budget-usd", fmt.Sprintf("%.6f", c.maxBudgetUSD))
+		args = append(args, claudecontract.FlagMaxBudgetUSD, fmt.Sprintf("%.6f", c.maxBudgetUSD))
 	}
 
 	// NOTE: maxTurns is not supported by Claude CLI - removed non-existent flag
@@ -762,18 +771,18 @@ func (c *ClaudeCLI) appendModelArgs(args []string, req CompletionRequest) []stri
 func (c *ClaudeCLI) appendToolArgs(args []string) []string {
 	// Allowed tools (whitelist)
 	for _, tool := range c.allowedTools {
-		args = append(args, "--allowedTools", tool)
+		args = append(args, claudecontract.FlagAllowedTools, tool)
 	}
 
 	// Disallowed tools (blacklist)
 	// Note: Claude CLI uses camelCase for tool flags (--allowedTools, --disallowedTools)
 	for _, tool := range c.disallowedTools {
-		args = append(args, "--disallowedTools", tool)
+		args = append(args, claudecontract.FlagDisallowedTools, tool)
 	}
 
 	// Exact tool set
 	if len(c.tools) > 0 {
-		args = append(args, "--tools", strings.Join(c.tools, ","))
+		args = append(args, claudecontract.FlagTools, strings.Join(c.tools, ","))
 	}
 
 	return args
@@ -782,20 +791,20 @@ func (c *ClaudeCLI) appendToolArgs(args []string) []string {
 // appendPermissionArgs adds permission and settings arguments.
 func (c *ClaudeCLI) appendPermissionArgs(args []string) []string {
 	if c.dangerouslySkipPermissions {
-		args = append(args, "--dangerously-skip-permissions")
+		args = append(args, claudecontract.FlagDangerouslySkipPermissions)
 	}
 	if c.permissionMode != "" {
-		args = append(args, "--permission-mode", string(c.permissionMode))
+		args = append(args, claudecontract.FlagPermissionMode, string(c.permissionMode))
 	}
 
 	// Setting sources
 	if len(c.settingSources) > 0 {
-		args = append(args, "--setting-sources", strings.Join(c.settingSources, ","))
+		args = append(args, claudecontract.FlagSettingSources, strings.Join(c.settingSources, ","))
 	}
 
 	// Additional directories
 	for _, dir := range c.addDirs {
-		args = append(args, "--add-dir", dir)
+		args = append(args, claudecontract.FlagAddDir, dir)
 	}
 
 	return args
@@ -805,7 +814,7 @@ func (c *ClaudeCLI) appendPermissionArgs(args []string) []string {
 func (c *ClaudeCLI) appendMCPArgs(args []string) []string {
 	// Add config file paths or JSON strings
 	for _, pathOrJSON := range c.mcpConfigPaths {
-		args = append(args, "--mcp-config", pathOrJSON)
+		args = append(args, claudecontract.FlagMCPConfig, pathOrJSON)
 	}
 
 	// Add inline servers as JSON string
@@ -814,13 +823,13 @@ func (c *ClaudeCLI) appendMCPArgs(args []string) []string {
 			"mcpServers": c.mcpServers,
 		})
 		if err == nil {
-			args = append(args, "--mcp-config", string(mcpJSON))
+			args = append(args, claudecontract.FlagMCPConfig, string(mcpJSON))
 		}
 	}
 
 	// Strict mode
 	if c.strictMCPConfig {
-		args = append(args, "--strict-mcp-config")
+		args = append(args, claudecontract.FlagStrictMCPConfig)
 	}
 
 	return args

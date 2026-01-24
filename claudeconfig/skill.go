@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/randalmurphal/llmkit/claudecontract"
 	"gopkg.in/yaml.v3"
 )
 
@@ -106,7 +107,7 @@ func ParseSkillMD(path string) (*Skill, error) {
 	}
 
 	if info.IsDir() {
-		filePath = filepath.Join(path, "SKILL.md")
+		filePath = filepath.Join(path, claudecontract.FileSkillMD)
 	} else {
 		dirPath = filepath.Dir(path)
 	}
@@ -114,21 +115,21 @@ func ParseSkillMD(path string) (*Skill, error) {
 	// Read the file
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("read SKILL.md: %w", err)
+		return nil, fmt.Errorf("read %s: %w", claudecontract.FileSkillMD, err)
 	}
 
 	// Parse the content
 	skill, err := parseSkillContent(data)
 	if err != nil {
-		return nil, fmt.Errorf("parse SKILL.md: %w", err)
+		return nil, fmt.Errorf("parse %s: %w", claudecontract.FileSkillMD, err)
 	}
 
 	skill.Path = dirPath
 
 	// Check for resource subdirectories
-	skill.HasReferences = dirExists(filepath.Join(dirPath, "references"))
-	skill.HasScripts = dirExists(filepath.Join(dirPath, "scripts"))
-	skill.HasAssets = dirExists(filepath.Join(dirPath, "assets"))
+	skill.HasReferences = dirExists(filepath.Join(dirPath, claudecontract.DirReferences))
+	skill.HasScripts = dirExists(filepath.Join(dirPath, claudecontract.DirScripts))
+	skill.HasAssets = dirExists(filepath.Join(dirPath, claudecontract.DirAssets))
 
 	return skill, nil
 }
@@ -232,9 +233,9 @@ func WriteSkillMD(skill *Skill, dir string) error {
 	}
 
 	// Write file
-	filePath := filepath.Join(dir, "SKILL.md")
+	filePath := filepath.Join(dir, claudecontract.FileSkillMD)
 	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("write SKILL.md: %w", err)
+		return fmt.Errorf("write %s: %w", claudecontract.FileSkillMD, err)
 	}
 
 	return nil
@@ -243,7 +244,7 @@ func WriteSkillMD(skill *Skill, dir string) error {
 // DiscoverSkills finds all SKILL.md files in the given .claude directory.
 // It searches in the skills/ subdirectory.
 func DiscoverSkills(claudeDir string) ([]*Skill, error) {
-	skillsDir := filepath.Join(claudeDir, "skills")
+	skillsDir := filepath.Join(claudeDir, claudecontract.DirSkills)
 
 	// Check if skills directory exists
 	if !dirExists(skillsDir) {
@@ -262,7 +263,7 @@ func DiscoverSkills(claudeDir string) ([]*Skill, error) {
 		}
 
 		skillPath := filepath.Join(skillsDir, entry.Name())
-		skillFile := filepath.Join(skillPath, "SKILL.md")
+		skillFile := filepath.Join(skillPath, claudecontract.FileSkillMD)
 
 		// Check if SKILL.md exists in this directory
 		if !fileExists(skillFile) {

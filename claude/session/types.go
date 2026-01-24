@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/randalmurphal/llmkit/claudecontract"
 )
 
 // SessionStatus represents the current state of a session.
@@ -189,22 +191,22 @@ func (m *OutputMessage) parseTypedMessage() error {
 	}
 
 	switch m.Type {
-	case "system":
+	case claudecontract.EventTypeSystem:
 		switch m.Subtype {
-		case "init":
+		case claudecontract.SubtypeInit:
 			m.Init = &InitMessage{}
 			return json.Unmarshal(m.Raw, m.Init)
-		case "hook_response":
+		case claudecontract.SubtypeHookResponse:
 			m.Hook = &HookMessage{}
 			return json.Unmarshal(m.Raw, m.Hook)
 		}
-	case "assistant":
+	case claudecontract.EventTypeAssistant:
 		m.Assistant = &AssistantMessage{}
 		return json.Unmarshal(m.Raw, m.Assistant)
-	case "result":
+	case claudecontract.EventTypeResult:
 		m.Result = &ResultMessage{}
 		return json.Unmarshal(m.Raw, m.Result)
-	case "user":
+	case claudecontract.EventTypeUser:
 		m.User = &UserMessage{}
 		return json.Unmarshal(m.Raw, m.User)
 	}
@@ -226,32 +228,33 @@ func ParseOutputMessage(data []byte) (*OutputMessage, error) {
 
 // IsInit returns true if this is an initialization message.
 func (m *OutputMessage) IsInit() bool {
-	return m.Type == "system" && m.Subtype == "init"
+	return m.Type == claudecontract.EventTypeSystem && m.Subtype == claudecontract.SubtypeInit
 }
 
 // IsAssistant returns true if this is an assistant message.
 func (m *OutputMessage) IsAssistant() bool {
-	return m.Type == "assistant"
+	return m.Type == claudecontract.EventTypeAssistant
 }
 
 // IsResult returns true if this is a result message.
 func (m *OutputMessage) IsResult() bool {
-	return m.Type == "result"
+	return m.Type == claudecontract.EventTypeResult
 }
 
 // IsHook returns true if this is a hook response.
 func (m *OutputMessage) IsHook() bool {
-	return m.Type == "system" && m.Subtype == "hook_response"
+	return m.Type == claudecontract.EventTypeSystem && m.Subtype == claudecontract.SubtypeHookResponse
 }
 
 // IsSuccess returns true if this is a successful result.
 func (m *OutputMessage) IsSuccess() bool {
-	return m.Type == "result" && m.Subtype == "success"
+	return m.Type == claudecontract.EventTypeResult && m.Subtype == claudecontract.ResultSubtypeSuccess
 }
 
 // IsError returns true if this is an error result.
+// Error subtypes include: error_max_turns, error_during_execution, error_max_budget_usd, etc.
 func (m *OutputMessage) IsError() bool {
-	return m.Type == "result" && (m.Subtype == "error" || (m.Result != nil && m.Result.IsError))
+	return m.Type == claudecontract.EventTypeResult && (strings.HasPrefix(m.Subtype, "error") || (m.Result != nil && m.Result.IsError))
 }
 
 // GetText extracts the text content from the message.
@@ -261,7 +264,7 @@ func (m *OutputMessage) GetText() string {
 	if m.Assistant != nil {
 		var sb strings.Builder
 		for _, block := range m.Assistant.Message.Content {
-			if block.Type == "text" {
+			if block.Type == claudecontract.ContentTypeText {
 				sb.WriteString(block.Text)
 			}
 		}
@@ -358,13 +361,13 @@ func ParseJSONLMessage(data []byte) (*JSONLMessage, error) {
 // IsUser returns true if this is a user message.
 // Returns false for nil receivers.
 func (m *JSONLMessage) IsUser() bool {
-	return m != nil && m.Type == "user"
+	return m != nil && m.Type == claudecontract.EventTypeUser
 }
 
 // IsAssistant returns true if this is an assistant message.
 // Returns false for nil receivers.
 func (m *JSONLMessage) IsAssistant() bool {
-	return m != nil && m.Type == "assistant"
+	return m != nil && m.Type == claudecontract.EventTypeAssistant
 }
 
 // GetModel returns the model used for this message.

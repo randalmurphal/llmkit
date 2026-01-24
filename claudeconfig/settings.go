@@ -6,6 +6,8 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+
+	"github.com/randalmurphal/llmkit/claudecontract"
 )
 
 // Settings represents Claude Code's settings.json structure.
@@ -264,13 +266,13 @@ func LoadGlobalSettings() (*Settings, error) {
 		return nil, fmt.Errorf("get home dir: %w", err)
 	}
 
-	path := filepath.Join(home, ".claude", "settings.json")
+	path := filepath.Join(home, claudecontract.DirClaude, claudecontract.FileSettings)
 	return loadSettingsFile(path)
 }
 
 // LoadProjectSettings loads settings from {projectRoot}/.claude/settings.json.
 func LoadProjectSettings(projectRoot string) (*Settings, error) {
-	path := filepath.Join(projectRoot, ".claude", "settings.json")
+	path := filepath.Join(projectRoot, claudecontract.DirClaude, claudecontract.FileSettings)
 	return loadSettingsFile(path)
 }
 
@@ -309,12 +311,12 @@ func loadSettingsFile(path string) (*Settings, error) {
 
 // SaveProjectSettings saves settings to {projectRoot}/.claude/settings.json.
 func SaveProjectSettings(projectRoot string, settings *Settings) error {
-	claudeDir := filepath.Join(projectRoot, ".claude")
+	claudeDir := filepath.Join(projectRoot, claudecontract.DirClaude)
 	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		return fmt.Errorf("create .claude directory: %w", err)
+		return fmt.Errorf("create %s directory: %w", claudecontract.DirClaude, err)
 	}
 
-	path := filepath.Join(claudeDir, "settings.json")
+	path := filepath.Join(claudeDir, claudecontract.FileSettings)
 	return saveSettingsFile(path, settings)
 }
 
@@ -334,7 +336,7 @@ func saveSettingsFile(path string, settings *Settings) error {
 
 // SettingsPath returns the path to the project settings file.
 func SettingsPath(projectRoot string) string {
-	return filepath.Join(projectRoot, ".claude", "settings.json")
+	return filepath.Join(projectRoot, claudecontract.DirClaude, claudecontract.FileSettings)
 }
 
 // GlobalSettingsPath returns the path to the global settings file.
@@ -343,7 +345,7 @@ func GlobalSettingsPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get home dir: %w", err)
 	}
-	return filepath.Join(home, ".claude", "settings.json"), nil
+	return filepath.Join(home, claudecontract.DirClaude, claudecontract.FileSettings), nil
 }
 
 // GetToolPermissions returns tool permissions from settings.

@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/randalmurphal/llmkit/claudecontract"
 )
 
 // Plugin represents a Claude Code plugin parsed from plugin.json.
@@ -144,12 +146,12 @@ func ParsePluginJSON(path string) (*Plugin, error) {
 
 	if info.IsDir() {
 		// Check if this is the .claude-plugin directory
-		if filepath.Base(path) == ".claude-plugin" {
-			filePath = filepath.Join(path, "plugin.json")
+		if filepath.Base(path) == claudecontract.DirClaudePlugin {
+			filePath = filepath.Join(path, claudecontract.FilePluginJSON)
 			dirPath = filepath.Dir(path)
 		} else {
 			// Assume this is the plugin root directory
-			filePath = filepath.Join(path, ".claude-plugin", "plugin.json")
+			filePath = filepath.Join(path, claudecontract.DirClaudePlugin, claudecontract.FilePluginJSON)
 			dirPath = path
 		}
 	} else {
@@ -160,25 +162,25 @@ func ParsePluginJSON(path string) (*Plugin, error) {
 	// Read the file
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("read plugin.json: %w", err)
+		return nil, fmt.Errorf("read %s: %w", claudecontract.FilePluginJSON, err)
 	}
 
 	// Parse JSON
 	plugin := &Plugin{}
 	if err := json.Unmarshal(data, plugin); err != nil {
-		return nil, fmt.Errorf("parse plugin.json: %w", err)
+		return nil, fmt.Errorf("parse %s: %w", claudecontract.FilePluginJSON, err)
 	}
 
 	plugin.Path = dirPath
 
 	// Check for resource subdirectories
-	plugin.HasCommands = dirExists(filepath.Join(dirPath, "commands"))
-	plugin.HasHooks = dirExists(filepath.Join(dirPath, "hooks"))
-	plugin.HasScripts = dirExists(filepath.Join(dirPath, "scripts"))
+	plugin.HasCommands = dirExists(filepath.Join(dirPath, claudecontract.DirCommands))
+	plugin.HasHooks = dirExists(filepath.Join(dirPath, claudecontract.DirHooks))
+	plugin.HasScripts = dirExists(filepath.Join(dirPath, claudecontract.DirScripts))
 
 	// Discover commands if present
 	if plugin.HasCommands {
-		commands, err := discoverPluginCommands(filepath.Join(dirPath, "commands"))
+		commands, err := discoverPluginCommands(filepath.Join(dirPath, claudecontract.DirCommands))
 		if err == nil {
 			plugin.Commands = commands
 		}
@@ -192,7 +194,7 @@ func ParsePluginJSON(path string) (*Plugin, error) {
 
 	// Discover hooks from hooks/hooks.json
 	if plugin.HasHooks {
-		hooks, err := discoverPluginHooks(filepath.Join(dirPath, "hooks"))
+		hooks, err := discoverPluginHooks(filepath.Join(dirPath, claudecontract.DirHooks))
 		if err == nil {
 			plugin.Hooks = hooks
 		}
@@ -278,14 +280,14 @@ func parseCommandFrontmatter(path string) (description, argumentHint string) {
 
 // discoverPluginMCPServers parses .mcp.json from the plugin directory.
 func discoverPluginMCPServers(pluginDir string) ([]PluginMCPServer, error) {
-	mcpPath := filepath.Join(pluginDir, ".mcp.json")
+	mcpPath := filepath.Join(pluginDir, claudecontract.FileMCPConfig)
 	if !fileExists(mcpPath) {
 		return nil, nil
 	}
 
 	data, err := os.ReadFile(mcpPath)
 	if err != nil {
-		return nil, fmt.Errorf("read .mcp.json: %w", err)
+		return nil, fmt.Errorf("read %s: %w", claudecontract.FileMCPConfig, err)
 	}
 
 	// .mcp.json format: {"server-name": {"command": "...", "args": [...]}}
@@ -298,7 +300,7 @@ func discoverPluginMCPServers(pluginDir string) ([]PluginMCPServer, error) {
 	}
 
 	if err := json.Unmarshal(data, &mcpConfig); err != nil {
-		return nil, fmt.Errorf("parse .mcp.json: %w", err)
+		return nil, fmt.Errorf("parse %s: %w", claudecontract.FileMCPConfig, err)
 	}
 
 	var servers []PluginMCPServer
@@ -396,7 +398,7 @@ func discoverPluginHooks(hooksDir string) ([]PluginHook, error) {
 // 1. plugins/{name}/.claude-plugin/plugin.json (simple format)
 // 2. plugins/cache/{marketplace}/{name}/{version}/.claude-plugin/plugin.json (Claude Code format)
 func DiscoverPlugins(claudeDir string) ([]*Plugin, error) {
-	pluginsDir := filepath.Join(claudeDir, "plugins")
+	pluginsDir := filepath.Join(claudeDir, claudecontract.DirPlugins)
 
 	// Check if plugins directory exists
 	if !dirExists(pluginsDir) {
@@ -413,12 +415,12 @@ func DiscoverPlugins(claudeDir string) ([]*Plugin, error) {
 	}
 
 	for _, entry := range entries {
-		if !entry.IsDir() || entry.Name() == "cache" {
+		if !entry.IsDir() || entry.Name() == claudecontract.DirCache {
 			continue
 		}
 
 		pluginPath := filepath.Join(pluginsDir, entry.Name())
-		pluginJSONPath := filepath.Join(pluginPath, ".claude-plugin", "plugin.json")
+		pluginJSONPath := filepath.Join(pluginPath, claudecontract.DirClaudePlugin, claudecontract.FilePluginJSON)
 
 		if !fileExists(pluginJSONPath) {
 			continue
@@ -436,7 +438,7 @@ func DiscoverPlugins(claudeDir string) ([]*Plugin, error) {
 	}
 
 	// 2. Scan cache directory (plugins/cache/{marketplace}/{name}/{version}/.claude-plugin/plugin.json)
-	cacheDir := filepath.Join(pluginsDir, "cache")
+	cacheDir := filepath.Join(pluginsDir, claudecontract.DirCache)
 	if dirExists(cacheDir) {
 		marketplaces, err := os.ReadDir(cacheDir)
 		if err == nil {
@@ -470,7 +472,7 @@ func DiscoverPlugins(claudeDir string) ([]*Plugin, error) {
 						}
 
 						versionPath := filepath.Join(pluginPath, version.Name())
-						pluginJSONPath := filepath.Join(versionPath, ".claude-plugin", "plugin.json")
+						pluginJSONPath := filepath.Join(versionPath, claudecontract.DirClaudePlugin, claudecontract.FilePluginJSON)
 
 						if !fileExists(pluginJSONPath) {
 							continue
@@ -549,10 +551,10 @@ func GlobalPluginsDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get home dir: %w", err)
 	}
-	return filepath.Join(home, ".claude", "plugins"), nil
+	return filepath.Join(home, claudecontract.DirClaude, claudecontract.DirPlugins), nil
 }
 
 // ProjectPluginsDir returns the path to the project plugins directory.
 func ProjectPluginsDir(projectRoot string) string {
-	return filepath.Join(projectRoot, ".claude", "plugins")
+	return filepath.Join(projectRoot, claudecontract.DirClaude, claudecontract.DirPlugins)
 }

@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/randalmurphal/llmkit/claudecontract"
 )
 
 // Session manages a long-running Claude CLI process with stream-json I/O.
@@ -166,17 +168,17 @@ func (s *session) start(ctx context.Context) error {
 // buildArgs constructs CLI arguments for stream-json mode.
 func (s *session) buildArgs() []string {
 	args := []string{
-		"--input-format", "stream-json",
-		"--output-format", "stream-json",
-		"--verbose",
+		claudecontract.FlagInputFormat, claudecontract.FormatStreamJSON,
+		claudecontract.FlagOutputFormat, claudecontract.FormatStreamJSON,
+		claudecontract.FlagVerbose,
 	}
 
 	// Session management
 	if s.config.sessionID != "" {
 		if s.config.resume {
-			args = append(args, "--resume", s.config.sessionID)
+			args = append(args, claudecontract.FlagResume, s.config.sessionID)
 		} else {
-			args = append(args, "--session-id", s.config.sessionID)
+			args = append(args, claudecontract.FlagSessionID, s.config.sessionID)
 		}
 	}
 	// Note: --no-session-persistence only works with --print mode
@@ -185,51 +187,51 @@ func (s *session) buildArgs() []string {
 
 	// Model
 	if s.config.model != "" {
-		args = append(args, "--model", s.config.model)
+		args = append(args, claudecontract.FlagModel, s.config.model)
 	}
 	if s.config.fallbackModel != "" {
-		args = append(args, "--fallback-model", s.config.fallbackModel)
+		args = append(args, claudecontract.FlagFallbackModel, s.config.fallbackModel)
 	}
 
 	// System prompt
 	if s.config.systemPrompt != "" {
-		args = append(args, "--system-prompt", s.config.systemPrompt)
+		args = append(args, claudecontract.FlagSystemPrompt, s.config.systemPrompt)
 	}
 	if s.config.appendSystemPrompt != "" {
-		args = append(args, "--append-system-prompt", s.config.appendSystemPrompt)
+		args = append(args, claudecontract.FlagAppendSystemPrompt, s.config.appendSystemPrompt)
 	}
 
 	// Tools
 	for _, tool := range s.config.allowedTools {
-		args = append(args, "--allowedTools", tool)
+		args = append(args, claudecontract.FlagAllowedTools, tool)
 	}
 	// Note: Claude CLI uses camelCase for tool flags (--allowedTools, --disallowedTools)
 	for _, tool := range s.config.disallowedTools {
-		args = append(args, "--disallowedTools", tool)
+		args = append(args, claudecontract.FlagDisallowedTools, tool)
 	}
 	if len(s.config.tools) > 0 {
-		args = append(args, "--tools", strings.Join(s.config.tools, ","))
+		args = append(args, claudecontract.FlagTools, strings.Join(s.config.tools, ","))
 	}
 
 	// Permissions
 	if s.config.dangerouslySkipPermissions {
-		args = append(args, "--dangerously-skip-permissions")
+		args = append(args, claudecontract.FlagDangerouslySkipPermissions)
 	}
 	if s.config.permissionMode != "" {
-		args = append(args, "--permission-mode", s.config.permissionMode)
+		args = append(args, claudecontract.FlagPermissionMode, s.config.permissionMode)
 	}
 	if len(s.config.settingSources) > 0 {
-		args = append(args, "--setting-sources", strings.Join(s.config.settingSources, ","))
+		args = append(args, claudecontract.FlagSettingSources, strings.Join(s.config.settingSources, ","))
 	}
 
 	// Directories
 	for _, dir := range s.config.addDirs {
-		args = append(args, "--add-dir", dir)
+		args = append(args, claudecontract.FlagAddDir, dir)
 	}
 
 	// Limits
 	if s.config.maxBudgetUSD > 0 {
-		args = append(args, "--max-budget-usd", fmt.Sprintf("%.6f", s.config.maxBudgetUSD))
+		args = append(args, claudecontract.FlagMaxBudgetUSD, fmt.Sprintf("%.6f", s.config.maxBudgetUSD))
 	}
 	// NOTE: maxTurns is not supported by Claude CLI - the flag doesn't exist.
 	// The config value is silently ignored.

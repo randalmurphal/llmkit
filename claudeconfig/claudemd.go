@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/randalmurphal/llmkit/claudecontract"
 )
 
 // ClaudeMD represents a CLAUDE.md file.
@@ -50,9 +52,9 @@ func LoadClaudeMDHierarchy(projectRoot string) (*ClaudeMDHierarchy, error) {
 	}
 
 	// Load global (~/.claude/CLAUDE.md)
-	globalPath := filepath.Join(home, ".claude", "CLAUDE.md")
+	globalPath := filepath.Join(home, claudecontract.DirClaude, claudecontract.FileClaudeMD)
 	if global, err := LoadClaudeMD(globalPath); err != nil {
-		return nil, fmt.Errorf("load global CLAUDE.md: %w", err)
+		return nil, fmt.Errorf("load global %s: %w", claudecontract.FileClaudeMD, err)
 	} else if global != nil {
 		global.IsGlobal = true
 		global.Source = "global"
@@ -60,18 +62,18 @@ func LoadClaudeMDHierarchy(projectRoot string) (*ClaudeMDHierarchy, error) {
 	}
 
 	// Load user (~/CLAUDE.md)
-	userPath := filepath.Join(home, "CLAUDE.md")
+	userPath := filepath.Join(home, claudecontract.FileClaudeMD)
 	if user, err := LoadClaudeMD(userPath); err != nil {
-		return nil, fmt.Errorf("load user CLAUDE.md: %w", err)
+		return nil, fmt.Errorf("load user %s: %w", claudecontract.FileClaudeMD, err)
 	} else if user != nil {
 		user.Source = "user"
 		hierarchy.User = user
 	}
 
 	// Load project ({project}/CLAUDE.md)
-	projectPath := filepath.Join(projectRoot, "CLAUDE.md")
+	projectPath := filepath.Join(projectRoot, claudecontract.FileClaudeMD)
 	if project, err := LoadClaudeMD(projectPath); err != nil {
-		return nil, fmt.Errorf("load project CLAUDE.md: %w", err)
+		return nil, fmt.Errorf("load project %s: %w", claudecontract.FileClaudeMD, err)
 	} else if project != nil {
 		project.Source = "project"
 		hierarchy.Project = project
@@ -82,7 +84,7 @@ func LoadClaudeMDHierarchy(projectRoot string) (*ClaudeMDHierarchy, error) {
 
 // LoadProjectClaudeMD loads only the project's CLAUDE.md file.
 func LoadProjectClaudeMD(projectRoot string) (*ClaudeMD, error) {
-	path := filepath.Join(projectRoot, "CLAUDE.md")
+	path := filepath.Join(projectRoot, claudecontract.FileClaudeMD)
 	claudemd, err := LoadClaudeMD(path)
 	if err != nil {
 		return nil, err
@@ -95,7 +97,7 @@ func LoadProjectClaudeMD(projectRoot string) (*ClaudeMD, error) {
 
 // SaveProjectClaudeMD saves the project's CLAUDE.md file.
 func SaveProjectClaudeMD(projectRoot string, content string) error {
-	path := filepath.Join(projectRoot, "CLAUDE.md")
+	path := filepath.Join(projectRoot, claudecontract.FileClaudeMD)
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return fmt.Errorf("write CLAUDE.md: %w", err)
 	}
@@ -156,7 +158,7 @@ func (h *ClaudeMDHierarchy) Count() int {
 
 // ClaudeMDPath returns the expected path for a project's CLAUDE.md file.
 func ClaudeMDPath(projectRoot string) string {
-	return filepath.Join(projectRoot, "CLAUDE.md")
+	return filepath.Join(projectRoot, claudecontract.FileClaudeMD)
 }
 
 // GlobalClaudeMDPath returns the path to the global CLAUDE.md file.
@@ -165,5 +167,5 @@ func GlobalClaudeMDPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get home dir: %w", err)
 	}
-	return filepath.Join(home, ".claude", "CLAUDE.md"), nil
+	return filepath.Join(home, claudecontract.DirClaude, claudecontract.FileClaudeMD), nil
 }

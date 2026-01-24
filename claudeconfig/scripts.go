@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/randalmurphal/llmkit/claudecontract"
 )
 
 // Script errors
@@ -214,7 +216,7 @@ func (s *ScriptService) Exists(name string) bool {
 // Discover scans the .claude/scripts/ directory for scripts and returns them.
 // It does not automatically register them - call Create for each to register.
 func (s *ScriptService) Discover() ([]ProjectScript, error) {
-	scriptsDir := filepath.Join(s.projectRoot, ".claude", "scripts")
+	scriptsDir := filepath.Join(s.projectRoot, claudecontract.DirClaude, claudecontract.DirScripts)
 
 	if !dirExists(scriptsDir) {
 		return nil, nil
@@ -232,7 +234,7 @@ func (s *ScriptService) Discover() ([]ProjectScript, error) {
 		}
 
 		name := entry.Name()
-		path := filepath.Join(".claude", "scripts", name)
+		path := filepath.Join(claudecontract.DirClaude, claudecontract.DirScripts, name)
 		fullPath := filepath.Join(s.projectRoot, path)
 
 		info, err := entry.Info()
