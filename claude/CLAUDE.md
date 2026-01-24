@@ -115,16 +115,30 @@ Tests real CLI behavior. **Uses API credits.** Run intentionally:
 TEST_BEHAVIORAL=1 go test ./claude/... -run Behavioral -v -timeout 15m
 ```
 
-| Test | What It Verifies |
-|------|------------------|
-| `TestBehavioralMaxTurns` | `--max-turns` limits turns |
-| `TestBehavioralAllowedTools` | `--allowedTools` restricts usage |
-| `TestBehavioralJSONSchema` | `--json-schema` structured output |
-| `TestBehavioralSessionContinuity` | `--resume` continues sessions |
-| `TestBehavioralSubagentExecution` | Task tool spawns subagents |
-| `TestBehavioralSystemPrompt` | `--system-prompt` replaces prompt |
-| `TestBehavioralCostTracking` | Cost reported in result |
-| ... | (26 total tests) |
+**30 tests covering these flags:**
+
+| Flag | Test |
+|------|------|
+| `--max-turns` | `TestBehavioralMaxTurns` |
+| `--allowedTools` | `TestBehavioralAllowedTools` |
+| `--disallowedTools` | `TestBehavioralDisallowedTools` |
+| `--permission-mode` | `TestBehavioralPermissionMode` |
+| `--model` | `TestBehavioralModelSelection` |
+| `--json-schema` | `TestBehavioralJSONSchema` |
+| `--resume` | `TestBehavioralSessionContinuity` |
+| `--system-prompt` | `TestBehavioralSystemPrompt` |
+| `--append-system-prompt` | `TestBehavioralAppendSystemPrompt` |
+| `--system-prompt-file` | `TestBehavioralSystemPromptFile` |
+| `--append-system-prompt-file` | `TestBehavioralAppendSystemPromptFile` |
+| `--tools` | `TestBehavioralToolsRestriction` |
+| `--max-budget-usd` | `TestBehavioralMaxBudgetTracking` |
+| `--no-session-persistence` | `TestBehavioralNoSessionPersistence` |
+| `--fallback-model` | `TestBehavioralFallbackModel` |
+| `--output-format` | `TestBehavioralOutputFormatJSON` |
+| `--add-dir` | `TestBehavioralAddDir` |
+| `--agents` | `TestBehavioralAgentsCustom` |
+| `--fork-session` | `TestBehavioralForkSession` |
+| `--verbose` | `TestBehavioralVerbose` |
 
 **Design**: Tests FAIL on parse errors or unexpected CLI behavior. No silent warnings.
 

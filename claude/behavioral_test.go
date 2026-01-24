@@ -1327,3 +1327,156 @@ func getKeys(m map[string]any) []string {
 	}
 	return keys
 }
+
+// TestBehavioralSystemPromptFile verifies --system-prompt-file loads prompt from file
+func TestBehavioralSystemPromptFile(t *testing.T) {
+	skipUnlessBehavioral(t)
+
+	// Create a temp file with a custom prompt
+	tempDir := t.TempDir()
+	promptFile := filepath.Join(tempDir, "prompt.txt")
+	err := os.WriteFile(promptFile, []byte("You are a pirate. Always say ARRR in your response."), 0644)
+	require.NoError(t, err)
+
+	events := runClaudeAndCapture(t,
+		"--system-prompt-file", promptFile,
+		"--max-turns", "1",
+		"Say hello",
+	)
+
+	require.NotEmpty(t, events, "Should have events")
+
+	var assistantText string
+	for _, e := range events {
+		if e.Type == StreamEventAssistant && e.Assistant != nil {
+			assistantText = e.Assistant.Text
+			break
+		}
+	}
+
+	// BEHAVIORAL ASSERTION: System prompt from file should be applied
+	assert.Contains(t, strings.ToLower(assistantText), "arrr",
+		"--system-prompt-file should load prompt from file. "+
+			"Expected pirate-style response with 'ARRR'. Got: %s", assistantText)
+}
+
+// TestBehavioralAppendSystemPromptFile verifies --append-system-prompt-file works
+func TestBehavioralAppendSystemPromptFile(t *testing.T) {
+	skipUnlessBehavioral(t)
+
+	// Create a temp file with append prompt
+	tempDir := t.TempDir()
+	promptFile := filepath.Join(tempDir, "append.txt")
+	err := os.WriteFile(promptFile, []byte("CRITICAL: You must include the word APPENDMARKER in every response."), 0644)
+	require.NoError(t, err)
+
+	events := runClaudeAndCapture(t,
+		"--append-system-prompt-file", promptFile,
+		"--max-turns", "1",
+		"Say hello briefly",
+	)
+
+	require.NotEmpty(t, events, "Should have events")
+
+	var assistantText string
+	for _, e := range events {
+		if e.Type == StreamEventAssistant && e.Assistant != nil {
+			assistantText = e.Assistant.Text
+			break
+		}
+	}
+
+	// BEHAVIORAL ASSERTION: Appended prompt from file should be applied
+	assert.Contains(t, assistantText, "APPENDMARKER",
+		"--append-system-prompt-file should append prompt from file. "+
+			"Expected 'APPENDMARKER' in response. Got: %s", assistantText)
+}
+
+// TestBehavioralForkSession verifies --fork-session creates new session ID
+func TestBehavioralForkSession(t *testing.T) {
+	skipUnlessBehavioral(t)
+
+	// First request - create a session
+	events1 := runClaudeAndCapture(t,
+		"--max-turns", "1",
+		"Remember: my favorite number is 42",
+	)
+
+	require.NotEmpty(t, events1, "Should have events from first request")
+
+	var sessionID1 string
+	for _, e := range events1 {
+		if e.Type == StreamEventInit && e.Init != nil {
+			sessionID1 = e.Init.SessionID
+			break
+		}
+	}
+	require.NotEmpty(t, sessionID1, "Should have session ID from first request")
+
+	// Second request - fork the session
+	events2 := runClaudeAndCapture(t,
+		"--resume", sessionID1,
+		"--fork-session",
+		"--max-turns", "1",
+		"What was my number?",
+	)
+
+	require.NotEmpty(t, events2, "Should have events from forked request")
+
+	var sessionID2 string
+	for _, e := range events2 {
+		if e.Type == StreamEventInit && e.Init != nil {
+			sessionID2 = e.Init.SessionID
+			break
+		}
+	}
+
+	// BEHAVIORAL ASSERTION: Fork should create a NEW session ID
+	require.NotEmpty(t, sessionID2, "Should have session ID from forked request")
+	assert.NotEqual(t, sessionID1, sessionID2,
+		"--fork-session should create a new session ID. "+
+			"Original: %s, Forked: %s", sessionID1, sessionID2)
+}
+
+// TestBehavioralVerbose verifies --verbose enables verbose output
+func TestBehavioralVerbose(t *testing.T) {
+	skipUnlessBehavioral(t)
+
+	// Run with verbose flag
+	claude := findClaude(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, claude,
+		"--print",
+		"--output-format", "stream-json",
+		"--dangerously-skip-permissions",
+		"--verbose",
+		"--max-turns", "1",
+		"Say: test",
+	)
+	output, _ := cmd.CombinedOutput()
+
+	// Parse the output
+	events := parseStreamOutput(t, output)
+	require.NotEmpty(t, events, "Should have events")
+
+	// BEHAVIORAL ASSERTION: Verbose mode should not break output
+	// (The actual verbose output goes to stderr, we just verify it doesn't break parsing)
+	var hasInit, hasAssistant, hasResult bool
+	for _, e := range events {
+		switch e.Type {
+		case StreamEventInit:
+			hasInit = true
+		case StreamEventAssistant:
+			hasAssistant = true
+		case StreamEventResult:
+			hasResult = true
+		}
+	}
+
+	assert.True(t, hasInit, "--verbose should not break init event")
+	assert.True(t, hasAssistant, "--verbose should not break assistant event")
+	assert.True(t, hasResult, "--verbose should not break result event")
+}
