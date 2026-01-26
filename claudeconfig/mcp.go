@@ -306,3 +306,42 @@ func (c *MCPConfig) Merge(override *MCPConfig) *MCPConfig {
 	}
 	return result
 }
+
+// LoadUserMCPConfig loads MCP server configuration from ~/.claude.json.
+// This file contains user-scope MCP servers configured via `claude mcp add --scope user`.
+// Returns empty config if file doesn't exist or has no mcpServers section.
+func LoadUserMCPConfig() (*MCPConfig, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("get home dir: %w", err)
+	}
+
+	path := filepath.Join(home, ".claude.json")
+	return loadMCPConfigFile(path)
+}
+
+// CountMCPServers returns the total count of enabled MCP servers from user and project configs.
+// User config is loaded from ~/.claude.json, project config from {projectRoot}/.mcp.json.
+func CountMCPServers(projectRoot string) (int, error) {
+	count := 0
+
+	userConfig, err := LoadUserMCPConfig()
+	if err == nil && userConfig != nil {
+		for _, server := range userConfig.MCPServers {
+			if server != nil && !server.Disabled {
+				count++
+			}
+		}
+	}
+
+	projectConfig, err := LoadProjectMCPConfig(projectRoot)
+	if err == nil && projectConfig != nil {
+		for _, server := range projectConfig.MCPServers {
+			if server != nil && !server.Disabled {
+				count++
+			}
+		}
+	}
+
+	return count, nil
+}
