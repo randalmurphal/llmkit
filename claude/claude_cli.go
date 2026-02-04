@@ -901,7 +901,10 @@ func (c *ClaudeCLI) appendModelArgs(args []string, req CompletionRequest) []stri
 		args = append(args, claudecontract.FlagMaxBudgetUSD, fmt.Sprintf("%.6f", c.maxBudgetUSD))
 	}
 
-	// NOTE: maxTurns is not supported by Claude CLI - removed non-existent flag
+	// Max turns (limits agentic conversation turns)
+	if c.maxTurns > 0 {
+		args = append(args, claudecontract.FlagMaxTurns, fmt.Sprintf("%d", c.maxTurns))
+	}
 
 	return args
 }

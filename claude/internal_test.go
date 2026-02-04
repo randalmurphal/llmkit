@@ -445,10 +445,10 @@ func TestBuildArgsNewOptions(t *testing.T) {
 			contains: []string{"--fallback-model", "haiku"},
 		},
 		{
-			name:     "max turns ignored (CLI doesn't support it)",
+			name:     "with max turns",
 			client:   NewClaudeCLI(WithMaxTurns(5)),
 			req:      CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "Hi"}}},
-			excludes: []string{"--max-turns"}, // Claude CLI doesn't have this flag
+			contains: []string{"--max-turns", "5"},
 		},
 		{
 			name:     "with tools",
