@@ -1,6 +1,7 @@
 package tokens
 
 import (
+	"strings"
 	"unicode/utf8"
 )
 
@@ -86,9 +87,26 @@ var ModelLimits = map[string]int{
 }
 
 // GetModelLimit returns the token limit for a model, or a default if not found.
+// It first tries an exact match, then checks if the model string starts with
+// any known key (e.g., "claude-opus-4-5-20251101" matches "claude-opus-4").
+// When multiple keys match, the longest (most specific) prefix wins.
 func GetModelLimit(model string) int {
 	if limit, ok := ModelLimits[model]; ok {
 		return limit
 	}
+
+	bestKey := ""
+	for key := range ModelLimits {
+		if key == "default" {
+			continue
+		}
+		if strings.HasPrefix(model, key) && len(key) > len(bestKey) {
+			bestKey = key
+		}
+	}
+	if bestKey != "" {
+		return ModelLimits[bestKey]
+	}
+
 	return ModelLimits["default"]
 }

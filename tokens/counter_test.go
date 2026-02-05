@@ -230,6 +230,31 @@ func TestGetModelLimit(t *testing.T) {
 			expected: 200000,
 		},
 		{
+			name:     "claude opus 4.5 versioned",
+			model:    "claude-opus-4-5-20251101",
+			expected: 200000,
+		},
+		{
+			name:     "claude opus 4.6 versioned",
+			model:    "claude-opus-4-6-20260205",
+			expected: 200000,
+		},
+		{
+			name:     "claude sonnet 4 versioned",
+			model:    "claude-sonnet-4-20250514",
+			expected: 200000,
+		},
+		{
+			name:     "claude sonnet 4.5 versioned",
+			model:    "claude-sonnet-4-5-20250929",
+			expected: 200000,
+		},
+		{
+			name:     "claude 3.5 sonnet versioned",
+			model:    "claude-3.5-sonnet-20241022",
+			expected: 200000,
+		},
+		{
 			name:     "unknown model gets default",
 			model:    "gpt-4",
 			expected: 100000,
