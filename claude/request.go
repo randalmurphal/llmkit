@@ -79,6 +79,11 @@ type CompletionResponse struct {
 	SessionID string  `json:"session_id,omitempty"`
 	CostUSD   float64 `json:"cost_usd,omitempty"`
 	NumTurns  int     `json:"num_turns,omitempty"`
+
+	// StructuredOutputUsed indicates content came from structured_output (--json-schema).
+	// When true, Content contains the parsed structured output JSON.
+	// When false, Content contains accumulated text from assistant messages.
+	StructuredOutputUsed bool `json:"structured_output_used,omitempty"`
 }
 
 // ToolCall represents a tool invocation request from the LLM.

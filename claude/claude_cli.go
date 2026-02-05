@@ -504,6 +504,22 @@ func (c *ClaudeCLI) Complete(ctx context.Context, req CompletionRequest) (*Compl
 	}
 	resp.Duration = time.Since(start)
 
+	// Validate structured output when schema was requested.
+	// --json-schema uses constrained decoding which guarantees schema-compliant output,
+	// but only if Claude actually produces a final response. If Claude exits early
+	// (e.g., on resume of a "completed" session), structured_output may be empty.
+	schema := c.jsonSchema
+	if req.JSONSchema != "" {
+		schema = req.JSONSchema
+	}
+	if schema != "" && !resp.StructuredOutputUsed {
+		preview := resp.Content
+		if len(preview) > 200 {
+			preview = preview[:200] + "..."
+		}
+		return nil, fmt.Errorf("JSON schema was specified but no structured output received (num_turns=%d, content=%q)", resp.NumTurns, preview)
+	}
+
 	return resp, nil
 }
 

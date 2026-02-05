@@ -428,6 +428,7 @@ func StreamToCompleteWithCallback(ctx context.Context, events <-chan StreamEvent
 	// Handle structured output - it overrides content
 	if len(final.StructuredOutput) > 0 {
 		resp.Content = string(final.StructuredOutput)
+		resp.StructuredOutputUsed = true
 	}
 
 	// Use session ID from result if not captured from events
