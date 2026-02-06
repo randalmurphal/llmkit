@@ -111,7 +111,22 @@ type Config struct {
 	//   - "sandbox": "read-only" | "workspace-write" | "danger-full-access"
 	//   - "ask_for_approval": "untrusted" | "on-failure" | "on-request" | "never"
 	//   - "search": bool
+	//   - "web_search": "cached" | "live" | "disabled"
 	//   - "full_auto": bool
+	//   - "yolo": bool (dangerously bypass approvals and sandbox)
+	//   - "resume_all": bool (use --all when resuming last session)
+	//   - "profile": string
+	//   - "local_provider": "lmstudio" | "ollama"
+	//   - "config_overrides": map[string]any (repeated -c key=value)
+	//   - "skip_git_repo_check": bool
+	//   - "output_schema": string
+	//   - "output_last_message": string
+	//   - "model_reasoning_effort": "minimal" | "low" | "medium" | "high"
+	//   - "hide_agent_reasoning": bool
+	//   - "oss": bool (local OSS backend mode)
+	//   - "enable_features": []string
+	//   - "disable_features": []string
+	//   - "color": "auto" | "always" | "never"
 	//
 	// OpenCode:
 	//   - "quiet": bool

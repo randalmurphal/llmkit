@@ -27,6 +27,20 @@ type CompletionRequest struct {
 
 	// Options holds provider-specific configuration not covered by standard fields.
 	Options map[string]any `json:"options,omitempty"`
+
+	// WebSearchMode overrides the client-level web search mode for this request.
+	// Options: "cached", "live", "disabled"
+	WebSearchMode WebSearchMode `json:"web_search_mode,omitempty"`
+
+	// OutputSchemaPath overrides the client-level --output-schema path.
+	OutputSchemaPath string `json:"output_schema_path,omitempty"`
+
+	// OutputLastMessagePath overrides the client-level --output-last-message path.
+	OutputLastMessagePath string `json:"output_last_message_path,omitempty"`
+
+	// ConfigOverrides are applied as repeated -c key=value flags for this request.
+	// Request-level overrides take precedence over client-level overrides.
+	ConfigOverrides map[string]any `json:"config_overrides,omitempty"`
 }
 
 // Message is a conversation turn.

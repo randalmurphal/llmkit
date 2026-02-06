@@ -222,7 +222,7 @@ func TestCodexCLI_Capabilities(t *testing.T) {
 	assert.True(t, caps.Images)
 	// Updated native tools based on Codex documentation
 	assert.Contains(t, caps.NativeTools, "shell")
-	assert.Contains(t, caps.NativeTools, "apply_diff")
+	assert.Contains(t, caps.NativeTools, "apply_patch")
 	assert.Contains(t, caps.NativeTools, "read_file")
 	assert.Contains(t, caps.NativeTools, "list_dir")
 	assert.Contains(t, caps.NativeTools, "web_search")
@@ -320,22 +320,66 @@ func TestConfig_Validate(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "timeout")
 	})
+
+	t.Run("invalid web search mode", func(t *testing.T) {
+		cfg := codex.Config{
+			WebSearchMode: "not-valid",
+		}
+		err := cfg.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid web_search_mode")
+	})
+
+	t.Run("invalid reasoning effort", func(t *testing.T) {
+		cfg := codex.Config{
+			ReasoningEffort: "extreme",
+		}
+		err := cfg.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid reasoning_effort")
+	})
+
+	t.Run("invalid color mode", func(t *testing.T) {
+		cfg := codex.Config{
+			ColorMode: "rainbow",
+		}
+		err := cfg.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid color_mode")
+	})
 }
 
 func TestConfig_ToOptions(t *testing.T) {
 	cfg := codex.Config{
-		Model:        "gpt-5-codex",
-		Timeout:      10 * time.Minute,
-		WorkDir:      "/project",
-		SandboxMode:  codex.SandboxWorkspaceWrite,
-		ApprovalMode: codex.ApprovalNever,
-		FullAuto:     true,
-		SessionID:    "test-session",
-		EnableSearch: true,
-		AddDirs:      []string{"/tmp"},
-		Images:       []string{"/path/to/img.png"},
-		CodexPath:    "/custom/codex",
-		Env:          map[string]string{"KEY": "value"},
+		Model:         "gpt-5-codex",
+		Timeout:       10 * time.Minute,
+		WorkDir:       "/project",
+		SandboxMode:   codex.SandboxWorkspaceWrite,
+		ApprovalMode:  codex.ApprovalNever,
+		FullAuto:      true,
+		SessionID:     "test-session",
+		EnableSearch:  true,
+		WebSearchMode: codex.WebSearchCached,
+		Profile:       "ci",
+		LocalProvider: "ollama",
+		ConfigOverrides: map[string]any{
+			"custom_flag": true,
+		},
+		SkipGitRepoCheck:                     true,
+		OutputSchemaPath:                     "/tmp/schema.json",
+		OutputLastMessagePath:                "/tmp/last.txt",
+		DangerouslyBypassApprovalsAndSandbox: true,
+		ReasoningEffort:                      "medium",
+		HideAgentReasoning:                   true,
+		UseOSS:                               true,
+		ResumeAll:                            true,
+		EnabledFeatures:                      []string{"project_doc"},
+		DisabledFeatures:                     []string{"legacy_mode"},
+		ColorMode:                            "always",
+		AddDirs:                              []string{"/tmp"},
+		Images:                               []string{"/path/to/img.png"},
+		CodexPath:                            "/custom/codex",
+		Env:                                  map[string]string{"KEY": "value"},
 	}
 
 	opts := cfg.ToOptions()
@@ -354,8 +398,22 @@ func TestConfig_LoadFromEnv(t *testing.T) {
 	t.Setenv("CODEX_SANDBOX_MODE", "read-only")
 	t.Setenv("CODEX_APPROVAL_MODE", "never")
 	t.Setenv("CODEX_FULL_AUTO", "true")
+	t.Setenv("CODEX_YOLO", "true")
 	t.Setenv("CODEX_SESSION_ID", "env-session")
+	t.Setenv("CODEX_RESUME_ALL", "true")
 	t.Setenv("CODEX_SEARCH", "true")
+	t.Setenv("CODEX_WEB_SEARCH", "cached")
+	t.Setenv("CODEX_PROFILE", "ci")
+	t.Setenv("CODEX_LOCAL_PROVIDER", "ollama")
+	t.Setenv("CODEX_SKIP_GIT_REPO_CHECK", "true")
+	t.Setenv("CODEX_OUTPUT_SCHEMA", "/tmp/schema.json")
+	t.Setenv("CODEX_OUTPUT_LAST_MESSAGE", "/tmp/last.txt")
+	t.Setenv("CODEX_REASONING_EFFORT", "low")
+	t.Setenv("CODEX_HIDE_AGENT_REASONING", "true")
+	t.Setenv("CODEX_OSS", "true")
+	t.Setenv("CODEX_ENABLE_FEATURES", "project_doc,another")
+	t.Setenv("CODEX_DISABLE_FEATURES", "legacy_mode")
+	t.Setenv("CODEX_COLOR", "always")
 	t.Setenv("CODEX_PATH", "/env/codex")
 
 	cfg := codex.Config{}
@@ -367,8 +425,22 @@ func TestConfig_LoadFromEnv(t *testing.T) {
 	assert.Equal(t, codex.SandboxReadOnly, cfg.SandboxMode)
 	assert.Equal(t, codex.ApprovalNever, cfg.ApprovalMode)
 	assert.True(t, cfg.FullAuto)
+	assert.True(t, cfg.DangerouslyBypassApprovalsAndSandbox)
 	assert.Equal(t, "env-session", cfg.SessionID)
+	assert.True(t, cfg.ResumeAll)
 	assert.True(t, cfg.EnableSearch)
+	assert.Equal(t, codex.WebSearchCached, cfg.WebSearchMode)
+	assert.Equal(t, "ci", cfg.Profile)
+	assert.Equal(t, "ollama", cfg.LocalProvider)
+	assert.True(t, cfg.SkipGitRepoCheck)
+	assert.Equal(t, "/tmp/schema.json", cfg.OutputSchemaPath)
+	assert.Equal(t, "/tmp/last.txt", cfg.OutputLastMessagePath)
+	assert.Equal(t, "low", cfg.ReasoningEffort)
+	assert.True(t, cfg.HideAgentReasoning)
+	assert.True(t, cfg.UseOSS)
+	assert.Equal(t, []string{"project_doc", "another"}, cfg.EnabledFeatures)
+	assert.Equal(t, []string{"legacy_mode"}, cfg.DisabledFeatures)
+	assert.Equal(t, "always", cfg.ColorMode)
 	assert.Equal(t, "/env/codex", cfg.CodexPath)
 }
 

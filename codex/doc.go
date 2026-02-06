@@ -1,8 +1,8 @@
 // Package codex provides a Go wrapper for the OpenAI Codex CLI.
 //
-// The Codex CLI is an AI coding assistant that provides file operations,
-// shell execution, and web search capabilities. This package wraps the CLI
-// to provide a programmatic Go interface.
+// The wrapper is designed for headless/non-interactive execution using
+// `codex exec --json` and includes adaptive parsing for modern JSONL events
+// like thread/turn/item lifecycle messages.
 //
 // # Installation
 //
@@ -18,58 +18,28 @@
 //	)
 //
 //	resp, err := client.Complete(ctx, codex.CompletionRequest{
-//	    Messages: []codex.Message{
-//	        {Role: codex.RoleUser, Content: "What files are in this directory?"},
-//	    },
+//	    Messages: []codex.Message{{Role: codex.RoleUser, Content: "Summarize this repo"}},
 //	})
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	fmt.Println(resp.Content)
 //
-// # Sandbox Modes
-//
-// Codex supports three sandbox modes that control file system access:
-//
-//   - SandboxReadOnly: Only read operations allowed
-//   - SandboxWorkspaceWrite: Can write to workspace directory (default)
-//   - SandboxDangerFullAccess: Full file system access
-//
-// Example:
+// # Headless Configuration
 //
 //	client := codex.NewCodexCLI(
-//	    codex.WithSandboxMode(codex.SandboxReadOnly),
-//	)
-//
-// # Approval Modes
-//
-// Control when Codex asks for user approval:
-//
-//   - ApprovalUntrusted: Ask for all operations (most restrictive)
-//   - ApprovalOnFailure: Ask only when operations fail
-//   - ApprovalOnRequest: Ask only when explicitly requested
-//   - ApprovalNever: Never ask for approval (least restrictive)
-//
-// For non-interactive usage, use WithFullAuto():
-//
-//	client := codex.NewCodexCLI(
-//	    codex.WithFullAuto(),
+//	    codex.WithProfile("ci"),
+//	    codex.WithSandboxMode(codex.SandboxWorkspaceWrite),
+//	    codex.WithApprovalMode(codex.ApprovalNever),
+//	    codex.WithWebSearchMode(codex.WebSearchCached),
+//	    codex.WithConfigOverride("model_reasoning_effort", "medium"),
+//	    codex.WithEnabledFeatures([]string{"project_doc"}),
 //	)
 //
 // # Session Resume
 //
-// Resume a previous session:
+// Resume a specific session or the most recent session:
 //
-//	client := codex.NewCodexCLI()
-//	resp, err := client.Resume(ctx, "session-id", "Continue with the task")
+//	client := codex.NewCodexCLI(codex.WithSessionID("last"))
+//	resp, err := client.Complete(ctx, codex.CompletionRequest{Messages: ...})
 //
-// # Image Attachments
-//
-// Attach images to requests:
-//
-//	client := codex.NewCodexCLI(
-//	    codex.WithImages([]string{"/path/to/screenshot.png"}),
-//	)
+//	resp, err = client.Resume(ctx, "session-id", "Continue")
 //
 // # Provider Interface
 //
@@ -77,15 +47,15 @@
 //
 //	import (
 //	    "github.com/randalmurphal/llmkit/provider"
-//	    _ "github.com/randalmurphal/llmkit/codex" // Register provider
+//	    _ "github.com/randalmurphal/llmkit/codex"
 //	)
 //
 //	client, err := provider.New("codex", provider.Config{
-//	    Model:   "gpt-5-codex",
-//	    WorkDir: "/path/to/project",
+//	    Model: "gpt-5-codex",
 //	    Options: map[string]any{
-//	        "sandbox":          "workspace-write",
+//	        "sandbox": "workspace-write",
 //	        "ask_for_approval": "never",
+//	        "web_search": "cached",
 //	    },
 //	})
 package codex

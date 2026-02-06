@@ -3,7 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/randalmurphal/llmkit.svg)](https://pkg.go.dev/github.com/randalmurphal/llmkit)
 [![Go Report Card](https://goreportcard.com/badge/github.com/randalmurphal/llmkit)](https://goreportcard.com/report/github.com/randalmurphal/llmkit)
 
-Go library for LLM utilities. Standalone toolkit for token counting, prompt templates, response parsing, model selection, and Claude CLI integration.
+Go library for LLM utilities. Standalone toolkit for token counting, prompt templates, response parsing, model selection, and multi-provider CLI integrations (Claude, Codex, Gemini, and more).
 
 ## Installation
 
@@ -16,6 +16,7 @@ go get github.com/randalmurphal/llmkit
 | Package | Description |
 |---------|-------------|
 | [`claude`](./claude/) | Claude CLI wrapper with OAuth credential management |
+| [`codex`](./codex/) | OpenAI Codex CLI wrapper with headless `exec --json` support |
 | [`template`](./template/) | Prompt template rendering with `{{variable}}` syntax |
 | [`tokens`](./tokens/) | Token counting and budget management |
 | [`parser`](./parser/) | Extract JSON, YAML, and code blocks from LLM responses |

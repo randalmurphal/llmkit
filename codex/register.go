@@ -17,7 +17,7 @@ func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
 		return nil, err
 	}
 
-	opts := make([]CodexOption, 0, 12)
+	opts := make([]CodexOption, 0, 24)
 
 	// Map common config fields
 	if cfg.Model != "" {
@@ -49,15 +49,65 @@ func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
 		if cfg.GetBoolOption("full_auto", false) {
 			opts = append(opts, WithFullAuto())
 		}
+		if cfg.GetBoolOption("yolo", false) || cfg.GetBoolOption("dangerously_bypass_approvals_and_sandbox", false) {
+			opts = append(opts, WithDangerouslyBypassApprovalsAndSandbox())
+		}
 
 		// Session ID
 		if sid := cfg.GetStringOption("session_id", ""); sid != "" {
 			opts = append(opts, WithSessionID(sid))
 		}
+		if cfg.GetBoolOption("resume_all", false) {
+			opts = append(opts, WithResumeAll())
+		}
 
 		// Search
-		if cfg.GetBoolOption("search", false) {
+		if webSearch := cfg.GetStringOption("web_search", ""); webSearch != "" {
+			opts = append(opts, WithWebSearchMode(WebSearchMode(webSearch)))
+		} else if webSearch := cfg.GetStringOption("web_search_mode", ""); webSearch != "" {
+			opts = append(opts, WithWebSearchMode(WebSearchMode(webSearch)))
+		} else if cfg.GetBoolOption("search", false) {
 			opts = append(opts, WithSearch())
+		}
+		if cfg.GetBoolOption("enable_search", false) {
+			opts = append(opts, WithSearch())
+		}
+
+		// Profile and config overrides
+		if profile := cfg.GetStringOption("profile", ""); profile != "" {
+			opts = append(opts, WithProfile(profile))
+		}
+		if localProvider := cfg.GetStringOption("local_provider", ""); localProvider != "" {
+			opts = append(opts, WithLocalProvider(localProvider))
+		}
+		if cfg.GetBoolOption("skip_git_repo_check", false) {
+			opts = append(opts, WithSkipGitRepoCheck())
+		}
+		if outputSchema := cfg.GetStringOption("output_schema", ""); outputSchema != "" {
+			opts = append(opts, WithOutputSchema(outputSchema))
+		}
+		if outputLastMessage := cfg.GetStringOption("output_last_message", ""); outputLastMessage != "" {
+			opts = append(opts, WithOutputLastMessage(outputLastMessage))
+		}
+		if effort := cfg.GetStringOption("model_reasoning_effort", ""); effort != "" {
+			opts = append(opts, WithReasoningEffort(effort))
+		}
+		if cfg.GetBoolOption("hide_agent_reasoning", false) {
+			opts = append(opts, WithHideAgentReasoning())
+		}
+		if cfg.GetBoolOption("oss", false) || cfg.GetBoolOption("use_oss", false) {
+			opts = append(opts, WithOSS())
+		}
+		if color := cfg.GetStringOption("color", ""); color != "" {
+			opts = append(opts, WithColorMode(color))
+		} else if color := cfg.GetStringOption("color_mode", ""); color != "" {
+			opts = append(opts, WithColorMode(color))
+		}
+		if features := cfg.GetStringSliceOption("enable_features"); len(features) > 0 {
+			opts = append(opts, WithEnabledFeatures(features))
+		}
+		if features := cfg.GetStringSliceOption("disable_features"); len(features) > 0 {
+			opts = append(opts, WithDisabledFeatures(features))
 		}
 
 		// Codex binary path
@@ -94,6 +144,17 @@ func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
 				opts = append(opts, WithImages(imgs))
 			}
 		}
+
+		// Config overrides map
+		if overrides, ok := cfg.Options["config_overrides"].(map[string]any); ok && len(overrides) > 0 {
+			opts = append(opts, WithConfigOverrides(overrides))
+		} else if raw, ok := cfg.Options["config_overrides"].(map[string]string); ok && len(raw) > 0 {
+			overrides := make(map[string]any, len(raw))
+			for k, v := range raw {
+				overrides[k] = v
+			}
+			opts = append(opts, WithConfigOverrides(overrides))
+		}
 	}
 
 	return &codexProviderAdapter{
@@ -116,6 +177,7 @@ func (a *codexProviderAdapter) Complete(ctx context.Context, req provider.Reques
 		Temperature:  req.Temperature,
 		Options:      req.Options,
 	}
+	applyRequestOverrides(&codexReq)
 
 	// Convert messages
 	codexReq.Messages = make([]Message, len(req.Messages))
@@ -158,6 +220,7 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req provider.Request)
 		Temperature:  req.Temperature,
 		Options:      req.Options,
 	}
+	applyRequestOverrides(&codexReq)
 
 	// Convert messages
 	codexReq.Messages = make([]Message, len(req.Messages))
@@ -284,4 +347,33 @@ func (a *codexProviderAdapter) convertResponse(resp *CompletionResponse) *provid
 	}
 
 	return providerResp
+}
+
+func applyRequestOverrides(req *CompletionRequest) {
+	if req == nil || req.Options == nil {
+		return
+	}
+
+	if webSearch, ok := req.Options["web_search"].(string); ok && webSearch != "" {
+		req.WebSearchMode = WebSearchMode(webSearch)
+	} else if webSearch, ok := req.Options["web_search_mode"].(string); ok && webSearch != "" {
+		req.WebSearchMode = WebSearchMode(webSearch)
+	}
+	if outputSchema, ok := req.Options["output_schema"].(string); ok && outputSchema != "" {
+		req.OutputSchemaPath = outputSchema
+	}
+	if outputLast, ok := req.Options["output_last_message"].(string); ok && outputLast != "" {
+		req.OutputLastMessagePath = outputLast
+	}
+
+	if overrides, ok := req.Options["config_overrides"].(map[string]any); ok && len(overrides) > 0 {
+		req.ConfigOverrides = overrides
+		return
+	}
+	if raw, ok := req.Options["config_overrides"].(map[string]string); ok && len(raw) > 0 {
+		req.ConfigOverrides = make(map[string]any, len(raw))
+		for k, v := range raw {
+			req.ConfigOverrides[k] = v
+		}
+	}
 }

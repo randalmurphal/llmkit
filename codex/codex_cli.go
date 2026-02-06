@@ -9,8 +9,14 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/randalmurphal/llmkit/codexcontract"
 )
 
 // SandboxMode specifies the sandbox level for file system operations.
@@ -34,6 +40,16 @@ const (
 	ApprovalNever     ApprovalMode = "never"
 )
 
+// WebSearchMode controls how Codex should perform web search.
+type WebSearchMode string
+
+// Web search mode constants.
+const (
+	WebSearchCached   WebSearchMode = "cached"
+	WebSearchLive     WebSearchMode = "live"
+	WebSearchDisabled WebSearchMode = "disabled"
+)
+
 // CodexCLI implements Client using the Codex CLI binary.
 type CodexCLI struct {
 	path    string
@@ -41,18 +57,19 @@ type CodexCLI struct {
 	workdir string
 	timeout time.Duration
 
-	// Sandbox mode
-	sandboxMode SandboxMode
-
-	// Approval mode
-	approvalMode ApprovalMode
-	fullAuto     bool
+	// Safety/sandbox behavior
+	sandboxMode                          SandboxMode
+	approvalMode                         ApprovalMode
+	fullAuto                             bool
+	dangerouslyBypassApprovalsAndSandbox bool
 
 	// Session management
 	sessionID string
+	resumeAll bool
 
 	// Search
-	enableSearch bool
+	enableSearch  bool
+	webSearchMode WebSearchMode
 
 	// Additional directories
 	addDirs []string
@@ -60,16 +77,23 @@ type CodexCLI struct {
 	// Images
 	images []string
 
+	// Headless CLI controls
+	profile               string
+	localProvider         string
+	configOverrides       map[string]any
+	skipGitRepoCheck      bool
+	outputSchemaPath      string
+	outputLastMessagePath string
+	reasoningEffort       string
+	hideAgentReasoning    bool
+	useOSS                bool
+	enabledFeatures       []string
+	disabledFeatures      []string
+	colorMode             string
+
 	// Environment control
 	extraEnv map[string]string
-
-	// Note: Codex does not support --mcp-config CLI flag.
-	// MCP servers are configured via ~/.codex/config.toml only.
-	// Use WithMCPServers to programmatically add servers to config.
 }
-
-// Note: Codex MCP configuration is handled via ~/.codex/config.toml,
-// not via CLI flags. Use the `codex mcp add` command or edit config.toml directly.
 
 // CodexOption configures CodexCLI.
 type CodexOption func(*CodexCLI)
@@ -78,9 +102,8 @@ type CodexOption func(*CodexCLI)
 // Assumes "codex" is available in PATH unless overridden with WithCodexPath.
 func NewCodexCLI(opts ...CodexOption) *CodexCLI {
 	c := &CodexCLI{
-		path:        "codex",
-		timeout:     5 * time.Minute,
-		sandboxMode: SandboxWorkspaceWrite, // Safe default
+		path:    "codex",
+		timeout: 5 * time.Minute,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -120,19 +143,42 @@ func WithApprovalMode(mode ApprovalMode) CodexOption {
 	return func(c *CodexCLI) { c.approvalMode = mode }
 }
 
-// WithFullAuto enables automatic approvals (equivalent to --full-auto).
+// WithFullAuto enables automatic approvals.
 func WithFullAuto() CodexOption {
 	return func(c *CodexCLI) { c.fullAuto = true }
 }
 
+// WithDangerouslyBypassApprovalsAndSandbox enables Codex YOLO mode.
+func WithDangerouslyBypassApprovalsAndSandbox() CodexOption {
+	return func(c *CodexCLI) { c.dangerouslyBypassApprovalsAndSandbox = true }
+}
+
 // WithSessionID sets the session ID for resuming sessions.
+// Use "last" to resume the most recent session.
 func WithSessionID(id string) CodexOption {
 	return func(c *CodexCLI) { c.sessionID = id }
 }
 
-// WithSearch enables web search capabilities.
+// WithResumeAll includes all previous conversation turns when resuming.
+// Only applies when session is "last" or resume mode is active.
+func WithResumeAll() CodexOption {
+	return func(c *CodexCLI) { c.resumeAll = true }
+}
+
+// WithSearch enables live web search capabilities.
+// Deprecated compatibility alias for WithWebSearchMode(WebSearchLive).
 func WithSearch() CodexOption {
-	return func(c *CodexCLI) { c.enableSearch = true }
+	return func(c *CodexCLI) {
+		c.enableSearch = true
+		if c.webSearchMode == "" {
+			c.webSearchMode = WebSearchLive
+		}
+	}
+}
+
+// WithWebSearchMode sets the web search mode.
+func WithWebSearchMode(mode WebSearchMode) CodexOption {
+	return func(c *CodexCLI) { c.webSearchMode = mode }
 }
 
 // WithAddDir adds an additional directory to the accessible paths.
@@ -163,6 +209,87 @@ func WithImages(imagePaths []string) CodexOption {
 	}
 }
 
+// WithProfile sets the codex profile name.
+func WithProfile(profile string) CodexOption {
+	return func(c *CodexCLI) { c.profile = profile }
+}
+
+// WithLocalProvider selects the local OSS provider backend (e.g., "lmstudio", "ollama").
+func WithLocalProvider(provider string) CodexOption {
+	return func(c *CodexCLI) { c.localProvider = provider }
+}
+
+// WithConfigOverride adds a single -c key=value override.
+func WithConfigOverride(key string, value any) CodexOption {
+	return func(c *CodexCLI) {
+		if c.configOverrides == nil {
+			c.configOverrides = make(map[string]any)
+		}
+		c.configOverrides[key] = value
+	}
+}
+
+// WithConfigOverrides adds multiple -c key=value overrides.
+func WithConfigOverrides(overrides map[string]any) CodexOption {
+	return func(c *CodexCLI) {
+		if c.configOverrides == nil {
+			c.configOverrides = make(map[string]any, len(overrides))
+		}
+		for k, v := range overrides {
+			c.configOverrides[k] = v
+		}
+	}
+}
+
+// WithSkipGitRepoCheck allows execution outside a git repository.
+func WithSkipGitRepoCheck() CodexOption {
+	return func(c *CodexCLI) { c.skipGitRepoCheck = true }
+}
+
+// WithOutputSchema sets --output-schema.
+func WithOutputSchema(path string) CodexOption {
+	return func(c *CodexCLI) { c.outputSchemaPath = path }
+}
+
+// WithOutputLastMessage sets --output-last-message.
+func WithOutputLastMessage(path string) CodexOption {
+	return func(c *CodexCLI) { c.outputLastMessagePath = path }
+}
+
+// WithReasoningEffort sets model_reasoning_effort via -c override.
+func WithReasoningEffort(effort string) CodexOption {
+	return func(c *CodexCLI) { c.reasoningEffort = effort }
+}
+
+// WithHideAgentReasoning hides internal reasoning via -c override.
+func WithHideAgentReasoning() CodexOption {
+	return func(c *CodexCLI) { c.hideAgentReasoning = true }
+}
+
+// WithOSS enables the local OSS backend mode.
+func WithOSS() CodexOption {
+	return func(c *CodexCLI) { c.useOSS = true }
+}
+
+// WithEnabledFeatures enables one or more codex feature flags.
+func WithEnabledFeatures(features []string) CodexOption {
+	return func(c *CodexCLI) {
+		c.enabledFeatures = append(c.enabledFeatures, features...)
+	}
+}
+
+// WithDisabledFeatures disables one or more codex feature flags.
+func WithDisabledFeatures(features []string) CodexOption {
+	return func(c *CodexCLI) {
+		c.disabledFeatures = append(c.disabledFeatures, features...)
+	}
+}
+
+// WithColorMode sets output color mode: auto, always, or never.
+func WithColorMode(mode string) CodexOption {
+	return func(c *CodexCLI) { c.colorMode = mode }
+}
+
 // WithEnv adds additional environment variables to the CLI process.
 func WithEnv(env map[string]string) CodexOption {
 	return func(c *CodexCLI) {
@@ -185,22 +312,6 @@ func WithEnvVar(key, value string) CodexOption {
 	}
 }
 
-// Note: Codex does not support --mcp-config CLI flag.
-// MCP servers must be configured via ~/.codex/config.toml.
-// Use `codex mcp add <server-name> -- <command>` to add servers.
-
-// CLIEvent represents a JSON event from Codex CLI output.
-type CLIEvent struct {
-	Type      string          `json:"type"`
-	SessionID string          `json:"session_id,omitempty"`
-	Message   string          `json:"message,omitempty"`
-	Content   string          `json:"content,omitempty"`
-	Error     string          `json:"error,omitempty"`
-	Usage     *CLIUsage       `json:"usage,omitempty"`
-	ToolCall  *CLIToolCall    `json:"tool_call,omitempty"`
-	Result    json.RawMessage `json:"result,omitempty"`
-}
-
 // CLIUsage contains token usage from the CLI response.
 type CLIUsage struct {
 	InputTokens  int `json:"input_tokens"`
@@ -221,13 +332,28 @@ func (c *CodexCLI) setupCmd(cmd *exec.Cmd) {
 		cmd.Dir = c.workdir
 	}
 
-	// Only set Env if we have custom environment variables to add.
 	if len(c.extraEnv) > 0 {
 		cmd.Env = os.Environ()
 		for k, v := range c.extraEnv {
 			cmd.Env = setEnvVar(cmd.Env, k, v)
 		}
 	}
+}
+
+// resolvedPath returns an absolute command path when needed.
+func (c *CodexCLI) resolvedPath() string {
+	if filepath.IsAbs(c.path) {
+		return c.path
+	}
+	if c.workdir == "" {
+		return c.path
+	}
+	abs, err := exec.LookPath(c.path)
+	if err != nil {
+		slog.Debug("could not resolve executable path", "path", c.path, "error", err)
+		return c.path
+	}
+	return abs
 }
 
 // setEnvVar updates or adds an environment variable in an env slice.
@@ -242,22 +368,50 @@ func setEnvVar(env []string, key, value string) []string {
 	return append(env, prefix+value)
 }
 
+// withTimeoutContext applies client timeout if caller did not set a deadline.
+func (c *CodexCLI) withTimeoutContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.timeout <= 0 {
+		return ctx, func() {}
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, c.timeout)
+}
+
 // Complete implements Client.
 func (c *CodexCLI) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
-	start := time.Now()
+	ctx, cancel := c.withTimeoutContext(ctx)
+	defer cancel()
 
+	start := time.Now()
 	args, cleanup := c.buildArgsWithCleanup(req)
 	defer cleanup()
 
-	cmd := exec.CommandContext(ctx, c.path, args...)
+	cmd := exec.CommandContext(ctx, c.resolvedPath(), args...)
 	c.setupCmd(cmd)
+	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	cmd.Stdin = nil
 
-	if err := cmd.Run(); err != nil {
+	// Ensure child processes are terminated on context cancellation.
+	stopKill := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			if cmd.Process != nil {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
+		case <-stopKill:
+		}
+	}()
+
+	err := cmd.Run()
+	close(stopKill)
+	if err != nil {
 		if ctx.Err() != nil {
 			return nil, NewError("complete", ctx.Err(), false)
 		}
@@ -268,24 +422,31 @@ func (c *CodexCLI) Complete(ctx context.Context, req CompletionRequest) (*Comple
 
 	resp := c.parseResponse(stdout.Bytes())
 	resp.Duration = time.Since(start)
-
 	return resp, nil
 }
 
 // Stream implements Client.
 func (c *CodexCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error) {
+	ctx, cancel := c.withTimeoutContext(ctx)
+
 	args, cleanup := c.buildArgsWithCleanup(req)
-	cmd := exec.CommandContext(ctx, c.path, args...)
+	cmd := exec.CommandContext(ctx, c.resolvedPath(), args...)
 	c.setupCmd(cmd)
 	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cancel()
 		cleanup()
 		return nil, NewError("stream", fmt.Errorf("create stdout pipe: %w", err), false)
 	}
 
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
 	if err := cmd.Start(); err != nil {
+		cancel()
 		cleanup()
 		return nil, NewError("stream", fmt.Errorf("start command: %w", err), false)
 	}
@@ -293,184 +454,326 @@ func (c *CodexCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan St
 	ch := make(chan StreamChunk)
 	go func() {
 		defer close(ch)
-		defer cleanup() // Clean up temp files when stream completes
-		var cmdErr error
-		defer func() {
-			cmdErr = cmd.Wait()
-			if cmdErr != nil {
-				select {
-				case ch <- StreamChunk{Error: NewError("stream", fmt.Errorf("command failed: %w", cmdErr), false)}:
-				default:
+		defer cleanup()
+		defer cancel()
+
+		killDone := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				if cmd.Process != nil {
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 				}
+			case <-killDone:
 			}
 		}()
+		defer close(killDone)
 
 		scanner := bufio.NewScanner(stdout)
-		var accumulatedContent strings.Builder
+		const maxScanTokenSize = 10 * 1024 * 1024
+		scanner.Buffer(make([]byte, 64*1024), maxScanTokenSize)
 
+		var sawTerminal bool
+		var sawText bool
+	scanLoop:
 		for scanner.Scan() {
-			line := scanner.Text()
-			if line == "" {
+			line := bytes.TrimSpace(scanner.Bytes())
+			if len(line) == 0 {
 				continue
 			}
 
-			// Try to parse as JSON event
-			var event CLIEvent
-			if err := json.Unmarshal([]byte(line), &event); err != nil {
-				// Not JSON, treat as raw text
-				accumulatedContent.WriteString(line)
-				accumulatedContent.WriteString("\n")
-				select {
-				case ch <- StreamChunk{Content: line + "\n"}:
-				case <-ctx.Done():
-					ch <- StreamChunk{Error: ctx.Err()}
+			event, parseErr := parseEventLine(line)
+			if parseErr != nil {
+				text := string(line)
+				sawText = true
+				if !sendChunk(ctx, ch, StreamChunk{Content: text + "\n"}) {
 					return
 				}
 				continue
 			}
 
-			// Handle different event types
-			chunk := c.processEvent(&event, &accumulatedContent)
-			if chunk != nil {
-				select {
-				case ch <- *chunk:
-				case <-ctx.Done():
-					ch <- StreamChunk{Error: ctx.Err()}
+			if event.Text != "" {
+				if event.TextFromTurnOutput && sawText {
+					// Avoid duplicate final text when turn output mirrors streamed deltas.
+				} else {
+					sawText = true
+					if !sendChunk(ctx, ch, StreamChunk{Content: event.Text}) {
+						return
+					}
+				}
+			}
+			if len(event.ToolCalls) > 0 {
+				if !sendChunk(ctx, ch, StreamChunk{ToolCalls: event.ToolCalls}) {
 					return
 				}
+			}
+			if event.ErrMsg != "" {
+				sawTerminal = true
+				if !sendChunk(ctx, ch, StreamChunk{Error: NewError("stream", fmt.Errorf("%s", event.ErrMsg), false)}) {
+					return
+				}
+				break scanLoop
+			}
+			if event.Done {
+				sawTerminal = true
+				chunk := StreamChunk{Done: true}
+				if event.Usage != nil {
+					chunk.Usage = event.Usage
+				}
+				if !sendChunk(ctx, ch, chunk) {
+					return
+				}
+				break scanLoop
 			}
 		}
 
 		if err := scanner.Err(); err != nil {
-			ch <- StreamChunk{Error: NewError("stream", fmt.Errorf("read output: %w", err), false)}
+			_ = sendChunk(ctx, ch, StreamChunk{Error: NewError("stream", fmt.Errorf("read output: %w", err), false)})
 			return
 		}
 
-		// Send final chunk if we didn't get a completion event
-		select {
-		case ch <- StreamChunk{Done: true}:
-		default:
+		if waitErr := cmd.Wait(); waitErr != nil {
+			if ctx.Err() != nil {
+				_ = sendChunk(ctx, ch, StreamChunk{Error: ctx.Err()})
+				return
+			}
+			if !sawTerminal {
+				errMsg := sanitizeStderr(stderr.String())
+				if errMsg == "" {
+					errMsg = waitErr.Error()
+				}
+				_ = sendChunk(ctx, ch, StreamChunk{Error: NewError("stream", fmt.Errorf("%s", errMsg), isRetryableError(errMsg))})
+			}
+			return
+		}
+
+		if !sawTerminal {
+			_ = sendChunk(ctx, ch, StreamChunk{Done: true})
 		}
 	}()
 
 	return ch, nil
 }
 
-// processEvent converts a CLI event to a stream chunk.
-func (c *CodexCLI) processEvent(event *CLIEvent, content *strings.Builder) *StreamChunk {
-	switch event.Type {
-	case "content", "text", "assistant":
-		text := event.Content
-		if text == "" {
-			text = event.Message
-		}
-		if text != "" {
-			content.WriteString(text)
-			return &StreamChunk{Content: text}
-		}
-	case "tool_call":
-		if event.ToolCall != nil {
-			return &StreamChunk{
-				ToolCalls: []ToolCall{{
-					ID:        event.ToolCall.ID,
-					Name:      event.ToolCall.Name,
-					Arguments: event.ToolCall.Arguments,
-				}},
-			}
-		}
-	case "done", "complete", "end":
-		chunk := &StreamChunk{Done: true}
-		if event.Usage != nil {
-			chunk.Usage = &TokenUsage{
-				InputTokens:  event.Usage.InputTokens,
-				OutputTokens: event.Usage.OutputTokens,
-				TotalTokens:  event.Usage.TotalTokens,
-			}
-		}
-		return chunk
-	case "error":
-		errMsg := event.Error
-		if errMsg == "" {
-			errMsg = event.Message
-		}
-		return &StreamChunk{Error: NewError("stream", fmt.Errorf("%s", errMsg), false)}
+func sendChunk(ctx context.Context, ch chan<- StreamChunk, chunk StreamChunk) bool {
+	select {
+	case ch <- chunk:
+		return true
+	case <-ctx.Done():
+		return false
 	}
-	return nil
 }
 
-// buildArgsWithCleanup constructs CLI arguments and returns a cleanup function for temp files.
+// buildArgsWithCleanup constructs CLI arguments and returns a cleanup function.
 func (c *CodexCLI) buildArgsWithCleanup(req CompletionRequest) ([]string, func()) {
-	// Use exec subcommand for non-interactive mode with JSON output
-	args := []string{"exec", "--json"}
+	args := c.buildExecArgs(req)
+	cleanup := func() {}
+	return args, cleanup
+}
 
-	// Model
+func (c *CodexCLI) buildExecArgs(req CompletionRequest) []string {
+	resumeID := strings.TrimSpace(c.sessionID)
+
+	args := []string{codexcontract.CommandExec}
+	if resumeID != "" {
+		args = append(args, codexcontract.CommandResume)
+		if strings.EqualFold(resumeID, "last") {
+			args = append(args, "--last")
+			if c.resumeAll {
+				args = append(args, codexcontract.FlagAll)
+			}
+		} else {
+			args = append(args, resumeID)
+		}
+	}
+
+	args = append(args, codexcontract.FlagJSON)
+
 	model := c.model
 	if req.Model != "" {
 		model = req.Model
 	}
 	if model != "" {
-		args = append(args, "--model", model)
+		args = append(args, codexcontract.FlagModel, model)
 	}
 
-	// Sandbox mode
-	if c.sandboxMode != "" {
-		args = append(args, "--sandbox", string(c.sandboxMode))
+	if c.profile != "" {
+		args = append(args, codexcontract.FlagProfile, c.profile)
+	}
+	if c.localProvider != "" {
+		args = append(args, codexcontract.FlagLocalProvider, c.localProvider)
+	}
+	if c.useOSS {
+		args = append(args, codexcontract.FlagOSS)
+	}
+	if c.colorMode != "" {
+		args = append(args, codexcontract.FlagColor, c.colorMode)
+	}
+	for _, feature := range c.enabledFeatures {
+		if feature == "" {
+			continue
+		}
+		args = append(args, codexcontract.FlagEnable, feature)
+	}
+	for _, feature := range c.disabledFeatures {
+		if feature == "" {
+			continue
+		}
+		args = append(args, codexcontract.FlagDisable, feature)
 	}
 
-	// Approval mode
-	if c.approvalMode != "" {
-		args = append(args, "--ask-for-approval", string(c.approvalMode))
+	if c.skipGitRepoCheck {
+		args = append(args, codexcontract.FlagSkipGitRepoCheck)
 	}
 
-	// Full auto mode
 	if c.fullAuto {
-		args = append(args, "--full-auto")
+		args = append(args, codexcontract.FlagFullAuto)
+	}
+	if c.dangerouslyBypassApprovalsAndSandbox {
+		args = append(args, codexcontract.FlagDangerouslyBypassApprovalsSandbox)
 	}
 
-	// Working directory
+	if c.sandboxMode != "" && !c.dangerouslyBypassApprovalsAndSandbox {
+		args = append(args, codexcontract.FlagSandbox, string(c.sandboxMode))
+	}
+	if c.approvalMode != "" && !c.dangerouslyBypassApprovalsAndSandbox {
+		args = append(args, codexcontract.FlagAskForApproval, string(c.approvalMode))
+	}
+
 	if c.workdir != "" {
-		args = append(args, "--cd", c.workdir)
+		args = append(args, codexcontract.FlagCD, c.workdir)
 	}
 
-	// Additional directories
 	for _, dir := range c.addDirs {
-		args = append(args, "--add-dir", dir)
+		args = append(args, codexcontract.FlagAddDir, dir)
 	}
-
-	// Images
 	for _, img := range c.images {
-		args = append(args, "--image", img)
+		args = append(args, codexcontract.FlagImage, img)
 	}
 
-	// Search
-	if c.enableSearch {
-		args = append(args, "--search")
+	webSearchMode := c.webSearchMode
+	if req.WebSearchMode != "" {
+		webSearchMode = req.WebSearchMode
 	}
 
-	// Note: MCP is configured via ~/.codex/config.toml, not CLI flags
+	reqForOverrides := req
+	if webSearchMode != "" {
+		reqForOverrides.ConfigOverrides = cloneOverrides(req.ConfigOverrides)
+		reqForOverrides.ConfigOverrides["web_search"] = string(webSearchMode)
+	} else if c.enableSearch {
+		reqForOverrides.ConfigOverrides = cloneOverrides(req.ConfigOverrides)
+		reqForOverrides.ConfigOverrides["web_search"] = string(WebSearchLive)
+	}
 
-	// Build prompt from messages
+	outputSchemaPath := c.outputSchemaPath
+	if req.OutputSchemaPath != "" {
+		outputSchemaPath = req.OutputSchemaPath
+	}
+	if outputSchemaPath != "" {
+		args = append(args, codexcontract.FlagOutputSchema, outputSchemaPath)
+	}
+
+	outputLastMessagePath := c.outputLastMessagePath
+	if req.OutputLastMessagePath != "" {
+		outputLastMessagePath = req.OutputLastMessagePath
+	}
+	if outputLastMessagePath != "" {
+		args = append(args, codexcontract.FlagOutputLastMessage, outputLastMessagePath)
+	}
+
+	for _, override := range c.mergedConfigOverrides(reqForOverrides) {
+		args = append(args, codexcontract.FlagConfig, override)
+	}
+
 	prompt := c.buildPrompt(req)
-	args = append(args, prompt)
+	if prompt != "" {
+		args = append(args, prompt)
+	}
 
-	// Return no-op cleanup function (no temp files needed)
-	cleanup := func() {}
+	return args
+}
 
-	return args, cleanup
+func (c *CodexCLI) mergedConfigOverrides(req CompletionRequest) []string {
+	if len(c.configOverrides) == 0 && len(req.ConfigOverrides) == 0 && c.reasoningEffort == "" && !c.hideAgentReasoning {
+		return nil
+	}
+
+	merged := make(map[string]any, len(c.configOverrides)+len(req.ConfigOverrides)+2)
+	for k, v := range c.configOverrides {
+		merged[k] = v
+	}
+	for k, v := range req.ConfigOverrides {
+		merged[k] = v
+	}
+	if c.reasoningEffort != "" {
+		merged["model_reasoning_effort"] = c.reasoningEffort
+	}
+	if c.hideAgentReasoning {
+		merged["hide_agent_reasoning"] = true
+	}
+
+	keys := make([]string, 0, len(merged))
+	for k := range merged {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	overrides := make([]string, 0, len(keys))
+	for _, k := range keys {
+		overrides = append(overrides, k+"="+formatConfigValue(merged[k]))
+	}
+	return overrides
+}
+
+func formatConfigValue(v any) string {
+	switch t := v.(type) {
+	case string:
+		return strconv.Quote(t)
+	case bool:
+		if t {
+			return "true"
+		}
+		return "false"
+	case int:
+		return strconv.Itoa(t)
+	case int8, int16, int32, int64:
+		return fmt.Sprintf("%d", t)
+	case uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprintf("%d", t)
+	case float32, float64:
+		return fmt.Sprintf("%v", t)
+	case nil:
+		return "null"
+	default:
+		b, err := json.Marshal(t)
+		if err != nil {
+			return strconv.Quote(fmt.Sprintf("%v", t))
+		}
+		return string(b)
+	}
+}
+
+func cloneOverrides(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return make(map[string]any)
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // buildPrompt constructs the prompt from messages.
 func (c *CodexCLI) buildPrompt(req CompletionRequest) string {
 	var prompt strings.Builder
 
-	// Include system prompt if provided
 	if req.SystemPrompt != "" {
 		prompt.WriteString("System: ")
 		prompt.WriteString(req.SystemPrompt)
 		prompt.WriteString("\n\n")
 	}
 
-	// Build conversation from messages
 	for _, msg := range req.Messages {
 		switch msg.Role {
 		case RoleUser:
@@ -482,6 +785,16 @@ func (c *CodexCLI) buildPrompt(req CompletionRequest) string {
 				prompt.WriteString(msg.Content)
 				prompt.WriteString("\n\nUser: ")
 			}
+		case RoleTool:
+			if msg.Name != "" {
+				prompt.WriteString("Tool(")
+				prompt.WriteString(msg.Name)
+				prompt.WriteString("): ")
+			} else {
+				prompt.WriteString("Tool: ")
+			}
+			prompt.WriteString(msg.Content)
+			prompt.WriteString("\n")
 		}
 	}
 
@@ -495,86 +808,43 @@ func (c *CodexCLI) parseResponse(data []byte) *CompletionResponse {
 		FinishReason: "stop",
 	}
 
-	// Codex uses newline-delimited JSON events
 	lines := bytes.Split(data, []byte("\n"))
 	var contentBuilder strings.Builder
+	var sawText bool
 	var toolCalls []ToolCall
 
-	for _, line := range lines {
-		line = bytes.TrimSpace(line)
+	for _, rawLine := range lines {
+		line := bytes.TrimSpace(rawLine)
 		if len(line) == 0 {
 			continue
 		}
 
-		var event CLIEvent
-		if err := json.Unmarshal(line, &event); err != nil {
-			// If JSON parsing fails, treat as raw text
+		event, err := parseEventLine(line)
+		if err != nil {
 			contentBuilder.Write(line)
 			contentBuilder.WriteString("\n")
 			continue
 		}
 
-		switch event.Type {
-		case "content", "text", "assistant", "message":
-			text := event.Content
-			if text == "" {
-				text = event.Message
+		if event.SessionID != "" {
+			resp.SessionID = event.SessionID
+		}
+		if event.Usage != nil {
+			resp.Usage = *event.Usage
+		}
+		if len(event.ToolCalls) > 0 {
+			toolCalls = append(toolCalls, event.ToolCalls...)
+		}
+		if event.Text != "" {
+			if !(event.TextFromTurnOutput && sawText) {
+				sawText = true
+				contentBuilder.WriteString(event.Text)
 			}
-			contentBuilder.WriteString(text)
-		case "tool_call":
-			if event.ToolCall != nil {
-				toolCalls = append(toolCalls, ToolCall{
-					ID:        event.ToolCall.ID,
-					Name:      event.ToolCall.Name,
-					Arguments: event.ToolCall.Arguments,
-				})
-			}
-		case "session":
-			if event.SessionID != "" {
-				resp.SessionID = event.SessionID
-			}
-		case "usage":
-			if event.Usage != nil {
-				resp.Usage = TokenUsage{
-					InputTokens:  event.Usage.InputTokens,
-					OutputTokens: event.Usage.OutputTokens,
-					TotalTokens:  event.Usage.TotalTokens,
-				}
-			}
-		case "done", "complete", "end":
-			if event.Usage != nil {
-				resp.Usage = TokenUsage{
-					InputTokens:  event.Usage.InputTokens,
-					OutputTokens: event.Usage.OutputTokens,
-					TotalTokens:  event.Usage.TotalTokens,
-				}
-			}
-			if event.SessionID != "" {
-				resp.SessionID = event.SessionID
-			}
-		case "error":
-			errMsg := event.Error
-			if errMsg == "" {
-				errMsg = event.Message
-			}
+		}
+		if event.ErrMsg != "" {
 			resp.FinishReason = "error"
-			if resp.Content == "" {
-				resp.Content = errMsg
-			}
-		case "result":
-			// Try to extract content from result
-			if event.Result != nil {
-				var resultData struct {
-					Content string `json:"content"`
-					Text    string `json:"text"`
-				}
-				if err := json.Unmarshal(event.Result, &resultData); err == nil {
-					if resultData.Content != "" {
-						contentBuilder.WriteString(resultData.Content)
-					} else if resultData.Text != "" {
-						contentBuilder.WriteString(resultData.Text)
-					}
-				}
+			if contentBuilder.Len() == 0 {
+				contentBuilder.WriteString(event.ErrMsg)
 			}
 		}
 	}
@@ -582,12 +852,10 @@ func (c *CodexCLI) parseResponse(data []byte) *CompletionResponse {
 	resp.Content = strings.TrimSpace(contentBuilder.String())
 	resp.ToolCalls = toolCalls
 
-	// Calculate total tokens if not provided
 	if resp.Usage.TotalTokens == 0 && (resp.Usage.InputTokens > 0 || resp.Usage.OutputTokens > 0) {
 		resp.Usage.TotalTokens = resp.Usage.InputTokens + resp.Usage.OutputTokens
 	}
 
-	// Log warning if no content was extracted
 	if resp.Content == "" && len(resp.ToolCalls) == 0 {
 		preview := string(data)
 		if len(preview) > 200 {
@@ -600,24 +868,355 @@ func (c *CodexCLI) parseResponse(data []byte) *CompletionResponse {
 	return resp
 }
 
+type parsedLineEvent struct {
+	Text               string
+	TextFromTurnOutput bool
+	ToolCalls          []ToolCall
+	SessionID          string
+	Usage              *TokenUsage
+	Done               bool
+	ErrMsg             string
+}
+
+func parseEventLine(line []byte) (*parsedLineEvent, error) {
+	var event map[string]any
+	if err := json.Unmarshal(line, &event); err != nil {
+		return nil, err
+	}
+
+	parsed := &parsedLineEvent{}
+	eventType := getString(event, "type")
+	parsed.SessionID = firstNonEmpty(getString(event, "thread_id"), getString(event, "session_id"), getString(event, "id"))
+
+	if usage := parseUsage(event["usage"]); usage != nil {
+		parsed.Usage = usage
+	}
+
+	switch eventType {
+	case codexcontract.EventContent, codexcontract.EventText, codexcontract.EventAssistant, codexcontract.EventMessage:
+		parsed.Text = firstNonEmpty(getString(event, "content"), getString(event, "message"))
+
+	case codexcontract.EventToolCall:
+		if tc := parseToolCallMap(getMap(event, "tool_call")); tc != nil {
+			parsed.ToolCalls = append(parsed.ToolCalls, *tc)
+		}
+
+	case codexcontract.EventSession:
+		// Session ID already captured.
+
+	case codexcontract.EventUsage:
+		// Usage already captured.
+
+	case codexcontract.EventDone, codexcontract.EventComplete, codexcontract.EventEnd:
+		parsed.Done = true
+
+	case codexcontract.EventResult:
+		if resultText := parseResultText(event["result"]); resultText != "" {
+			parsed.Text = resultText
+		}
+
+	case codexcontract.EventThreadStarted:
+		// Session/thread already captured.
+
+	case codexcontract.EventItemStarted, codexcontract.EventItemUpdated, codexcontract.EventItemCompleted:
+		itemMap := toMap(event["item"])
+		if len(itemMap) > 0 {
+			itemType := getString(itemMap, "type")
+			switch itemType {
+			case codexcontract.ItemReasoning:
+				// Intentionally ignored for user-facing content.
+			default:
+				if isAgentMessageType(itemType) {
+					parsed.Text = firstNonEmpty(getString(itemMap, "delta"), getString(itemMap, "text"), extractTextFromContent(itemMap["content"]))
+				}
+				if tc := parseToolCallFromItem(itemMap); tc != nil {
+					parsed.ToolCalls = append(parsed.ToolCalls, *tc)
+				}
+			}
+		}
+
+	case codexcontract.EventTurnCompleted:
+		parsed.Done = true
+		if outText := extractTextFromContent(event["output"]); outText != "" {
+			parsed.Text = outText
+			parsed.TextFromTurnOutput = true
+		}
+		if parsed.Usage == nil {
+			if usage := parseUsage(event["turn_usage"]); usage != nil {
+				parsed.Usage = usage
+			}
+		}
+
+	case codexcontract.EventTurnFailed, codexcontract.EventError:
+		parsed.Done = true
+		parsed.ErrMsg = firstNonEmpty(getString(event, "error"), getString(event, "message"), parseResultText(event["result"]))
+		if parsed.ErrMsg == "" {
+			parsed.ErrMsg = "codex turn failed"
+		}
+
+	default:
+		// Unknown event type: best effort extraction for forward compatibility.
+		if parsed.Text == "" {
+			parsed.Text = firstNonEmpty(getString(event, "content"), getString(event, "message"))
+		}
+		if parsed.Text == "" {
+			if item := toMap(event["item"]); len(item) > 0 {
+				parsed.Text = extractTextFromContent(item["content"])
+			}
+		}
+	}
+
+	return parsed, nil
+}
+
+func isAgentMessageType(itemType string) bool {
+	if itemType == "" {
+		return true
+	}
+	itemType = strings.ToLower(itemType)
+	return itemType == codexcontract.ItemAgentMessage ||
+		itemType == "assistant_message" ||
+		itemType == "message" ||
+		itemType == "output_text"
+}
+
+func parseToolCallFromItem(item map[string]any) *ToolCall {
+	if tc := parseToolCallMap(getMap(item, "tool_call")); tc != nil {
+		if tc.ID == "" {
+			tc.ID = getString(item, "id")
+		}
+		return tc
+	}
+
+	itemType := strings.ToLower(getString(item, "type"))
+	if !strings.Contains(itemType, "tool") && !strings.Contains(itemType, "command") {
+		return nil
+	}
+
+	name := firstNonEmpty(getString(item, "name"), getString(item, "tool_name"), getString(item, "command"))
+	if name == "" {
+		return nil
+	}
+
+	var args json.RawMessage
+	if raw := item["arguments"]; raw != nil {
+		args = toRawJSON(raw)
+	} else if raw := item["input"]; raw != nil {
+		args = toRawJSON(raw)
+	}
+
+	return &ToolCall{
+		ID:        getString(item, "id"),
+		Name:      name,
+		Arguments: args,
+	}
+}
+
+func parseToolCallMap(m map[string]any) *ToolCall {
+	if len(m) == 0 {
+		return nil
+	}
+	name := getString(m, "name")
+	if name == "" {
+		return nil
+	}
+	var args json.RawMessage
+	if raw := m["arguments"]; raw != nil {
+		args = toRawJSON(raw)
+	}
+	return &ToolCall{
+		ID:        getString(m, "id"),
+		Name:      name,
+		Arguments: args,
+	}
+}
+
+func parseUsage(v any) *TokenUsage {
+	m := toMap(v)
+	if len(m) == 0 {
+		return nil
+	}
+	usage := &TokenUsage{
+		InputTokens:  firstNonZeroInt(toInt(m["input_tokens"]), toInt(m["inputTokens"])),
+		OutputTokens: firstNonZeroInt(toInt(m["output_tokens"]), toInt(m["outputTokens"])),
+		TotalTokens:  firstNonZeroInt(toInt(m["total_tokens"]), toInt(m["totalTokens"])),
+	}
+	if usage.TotalTokens == 0 && (usage.InputTokens > 0 || usage.OutputTokens > 0) {
+		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	}
+	if usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.TotalTokens == 0 {
+		return nil
+	}
+	return usage
+}
+
+func parseResultText(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	m := toMap(v)
+	if len(m) == 0 {
+		return ""
+	}
+	return firstNonEmpty(getString(m, "content"), getString(m, "text"), extractTextFromContent(m["output"]))
+}
+
+func extractTextFromContent(v any) string {
+	var out strings.Builder
+	appendExtractedText(&out, v)
+	return out.String()
+}
+
+func appendExtractedText(out *strings.Builder, v any) {
+	switch x := v.(type) {
+	case string:
+		out.WriteString(x)
+	case []any:
+		for _, item := range x {
+			appendExtractedText(out, item)
+		}
+	case map[string]any:
+		if t, ok := x["type"].(string); ok && strings.EqualFold(t, codexcontract.ItemReasoning) {
+			return
+		}
+		if delta := getString(x, "delta"); delta != "" {
+			out.WriteString(delta)
+		}
+		if text := getString(x, "text"); text != "" {
+			out.WriteString(text)
+		}
+		if content, ok := x["content"]; ok {
+			appendExtractedText(out, content)
+		}
+		if message, ok := x["message"]; ok {
+			appendExtractedText(out, message)
+		}
+		if output, ok := x["output"]; ok {
+			appendExtractedText(out, output)
+		}
+	}
+}
+
+func getString(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func getMap(m map[string]any, key string) map[string]any {
+	if m == nil {
+		return nil
+	}
+	return toMap(m[key])
+}
+
+func toMap(v any) map[string]any {
+	switch x := v.(type) {
+	case map[string]any:
+		return x
+	case json.RawMessage:
+		if len(x) == 0 {
+			return nil
+		}
+		var m map[string]any
+		if err := json.Unmarshal(x, &m); err == nil {
+			return m
+		}
+	case []byte:
+		if len(x) == 0 {
+			return nil
+		}
+		var m map[string]any
+		if err := json.Unmarshal(x, &m); err == nil {
+			return m
+		}
+	}
+	return nil
+}
+
+func toRawJSON(v any) json.RawMessage {
+	if v == nil {
+		return nil
+	}
+	if raw, ok := v.(json.RawMessage); ok {
+		return raw
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+func toInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int32:
+		return int(n)
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	}
+	return 0
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func firstNonZeroInt(values ...int) int {
+	for _, v := range values {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
+}
+
 // Resume resumes a previous session by ID.
-// Uses `codex exec resume <SESSION_ID>` for non-interactive mode.
+// Use sessionID="last" to resume the most recent session.
 func (c *CodexCLI) Resume(ctx context.Context, sessionID, prompt string) (*CompletionResponse, error) {
+	ctx, cancel := c.withTimeoutContext(ctx)
+	defer cancel()
+
 	start := time.Now()
 
-	// Use exec resume for non-interactive mode with JSON output
-	args := []string{"exec", "resume", sessionID, "--json"}
+	args := []string{codexcontract.CommandExec, codexcontract.CommandResume}
+	if strings.EqualFold(strings.TrimSpace(sessionID), "last") || strings.TrimSpace(sessionID) == "" {
+		args = append(args, "--last")
+		if c.resumeAll {
+			args = append(args, codexcontract.FlagAll)
+		}
+	} else {
+		args = append(args, sessionID)
+	}
+	args = append(args, codexcontract.FlagJSON)
 	if prompt != "" {
 		args = append(args, prompt)
 	}
 
-	cmd := exec.CommandContext(ctx, c.path, args...)
+	cmd := exec.CommandContext(ctx, c.resolvedPath(), args...)
 	c.setupCmd(cmd)
+	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	cmd.Stdin = nil
 
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
@@ -630,8 +1229,9 @@ func (c *CodexCLI) Resume(ctx context.Context, sessionID, prompt string) (*Compl
 
 	resp := c.parseResponse(stdout.Bytes())
 	resp.Duration = time.Since(start)
-	resp.SessionID = sessionID
-
+	if resp.SessionID == "" {
+		resp.SessionID = sessionID
+	}
 	return resp, nil
 }
 
@@ -667,11 +1267,16 @@ func (c *CodexCLI) Capabilities() Capabilities {
 	return Capabilities{
 		Streaming: true,
 		Tools:     true,
-		MCP:       false, // MCP requires config.toml, not supported via CLI flags
+		MCP:       false, // MCP uses ~/.codex/config.toml
 		Sessions:  true,
 		Images:    true,
-		// Codex native tools based on documentation
-		NativeTools: []string{"shell", "apply_diff", "read_file", "list_dir", "web_search"},
+		NativeTools: []string{
+			"shell",
+			"apply_patch",
+			"read_file",
+			"list_dir",
+			"web_search",
+		},
 		ContextFile: "AGENTS.md",
 	}
 }
