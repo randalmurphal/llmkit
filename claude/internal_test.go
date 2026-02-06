@@ -457,10 +457,16 @@ func TestBuildArgsNewOptions(t *testing.T) {
 			contains: []string{"--tools", "Bash,Read,Edit"},
 		},
 		{
-			name:     "with tools empty",
+			name:     "with tools empty disables all",
 			client:   NewClaudeCLI(WithTools([]string{})),
 			req:      CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "Hi"}}},
-			excludes: []string{"--tools"}, // Empty slice doesn't add the flag
+			contains: []string{"--tools", ""}, // Empty tools passes --tools "" to disable all
+		},
+		{
+			name:     "without tools unset",
+			client:   NewClaudeCLI(), // No WithTools call
+			req:      CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "Hi"}}},
+			excludes: []string{"--tools"}, // Unset tools doesn't add the flag
 		},
 		{
 			name:     "with tools single",

@@ -26,6 +26,7 @@ type sessionConfig struct {
 	allowedTools    []string
 	disallowedTools []string
 	tools           []string
+	toolsSet        bool // True when WithTools was called (distinguishes nil from empty)
 
 	// Permissions
 	dangerouslySkipPermissions bool
@@ -118,8 +119,12 @@ func WithDisallowedTools(tools []string) SessionOption {
 }
 
 // WithTools sets the exact list of available tools.
+// Use an empty slice to disable all tools (passes --tools "").
 func WithTools(tools []string) SessionOption {
-	return func(c *sessionConfig) { c.tools = tools }
+	return func(c *sessionConfig) {
+		c.tools = tools
+		c.toolsSet = true
+	}
 }
 
 // WithPermissions configures permission handling.

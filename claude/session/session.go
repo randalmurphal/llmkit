@@ -209,7 +209,7 @@ func (s *session) buildArgs() []string {
 	for _, tool := range s.config.disallowedTools {
 		args = append(args, claudecontract.FlagDisallowedTools, tool)
 	}
-	if len(s.config.tools) > 0 {
+	if s.config.toolsSet {
 		args = append(args, claudecontract.FlagTools, strings.Join(s.config.tools, ","))
 	}
 

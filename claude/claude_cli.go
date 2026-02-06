@@ -58,6 +58,7 @@ type ClaudeCLI struct {
 	allowedTools    []string
 	disallowedTools []string
 	tools           []string // Exact tool set (--tools flag)
+	toolsSet        bool     // True when WithTools was called (distinguishes nil from empty)
 
 	// Permissions
 	dangerouslySkipPermissions bool
@@ -192,7 +193,10 @@ func WithDisallowedTools(tools []string) ClaudeOption {
 // Use an empty slice to disable all tools, or specify tool names like "Bash", "Edit", "Read".
 // This is different from WithAllowedTools which is a whitelist filter.
 func WithTools(tools []string) ClaudeOption {
-	return func(c *ClaudeCLI) { c.tools = tools }
+	return func(c *ClaudeCLI) {
+		c.tools = tools
+		c.toolsSet = true
+	}
 }
 
 // WithDangerouslySkipPermissions skips all permission prompts.
@@ -938,8 +942,9 @@ func (c *ClaudeCLI) appendToolArgs(args []string) []string {
 		args = append(args, claudecontract.FlagDisallowedTools, tool)
 	}
 
-	// Exact tool set
-	if len(c.tools) > 0 {
+	// Exact tool set (--tools flag)
+	// When toolsSet is true with empty tools, pass --tools "" to disable all tools.
+	if c.toolsSet {
 		args = append(args, claudecontract.FlagTools, strings.Join(c.tools, ","))
 	}
 
