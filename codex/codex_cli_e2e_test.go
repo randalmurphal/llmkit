@@ -118,28 +118,53 @@ func TestCodexCLI_Stream_E2EWithMockCLI(t *testing.T) {
 	}
 }
 
-func TestCodexCLI_Resume_E2EWithMockCLI(t *testing.T) {
+func TestCodexCLI_ResumeViaComplete_E2EWithMockCLI(t *testing.T) {
 	scriptPath := writeMockCodexScript(t)
 	argsFile := filepath.Join(t.TempDir(), "args.txt")
 
 	client := codex.NewCodexCLI(
 		codex.WithCodexPath(scriptPath),
+		codex.WithSessionID("last"),
 		codex.WithResumeAll(),
+		codex.WithModel("gpt-5.3-codex"),
+		codex.WithDangerouslyBypassApprovalsAndSandbox(),
+		codex.WithOutputSchema("/tmp/schema.json"),
+		codex.WithProfile("ci"),
+		codex.WithAddDir("/extra"),
+		codex.WithColorMode("always"),
 		codex.WithEnv(map[string]string{
 			"CODEX_TEST_MODE":      "success",
 			"CODEX_TEST_ARGS_FILE": argsFile,
 		}),
 	)
 
-	_, err := client.Resume(context.Background(), "last", "continue")
+	_, err := client.Complete(context.Background(), codex.CompletionRequest{
+		Messages: []codex.Message{{Role: codex.RoleUser, Content: "continue"}},
+	})
 	if err != nil {
-		t.Fatalf("Resume returned error: %v", err)
+		t.Fatalf("Complete (resume) returned error: %v", err)
 	}
 
 	args := readLinesFile(t, argsFile)
-	wantPrefix := []string{"exec", "resume", "--last", "--all", "--json", "continue"}
-	for i, want := range wantPrefix {
-		assertArgAt(t, args, i, want)
+
+	// Resume prefix must come first
+	assertArgAt(t, args, 0, "exec")
+	assertArgAt(t, args, 1, "resume")
+	assertArgAt(t, args, 2, "--last")
+	assertArgAt(t, args, 3, "--all")
+	assertArgAt(t, args, 4, "--json")
+
+	// Flags accepted by `exec resume`
+	assertArgPair(t, args, "--model", "gpt-5.3-codex")
+	assertContainsArg(t, args, "--dangerously-bypass-approvals-and-sandbox")
+
+	// Flags NOT accepted by `exec resume` — must be absent
+	for _, forbidden := range []string{"--output-schema", "--profile", "--add-dir", "--color", "--cd"} {
+		for _, arg := range args {
+			if arg == forbidden {
+				t.Fatalf("resume args should NOT contain %q, but got: %v", forbidden, args)
+			}
+		}
 	}
 }
 

@@ -34,12 +34,13 @@
 //
 // # Session Resume
 //
-// Resume a specific session or the most recent session:
+// Resume a specific session or the most recent session via WithSessionID:
 //
-//	client := codex.NewCodexCLI(codex.WithSessionID("last"))
+//	client := codex.NewCodexCLI(codex.WithSessionID("thread_abc123"))
 //	resp, err := client.Complete(ctx, codex.CompletionRequest{Messages: ...})
 //
-//	resp, err = client.Resume(ctx, "session-id", "Continue")
+// The session ID is passed through buildExecArgs which emits `exec resume <id>`.
+// Flags unsupported by `exec resume` are automatically filtered out.
 //
 // # Provider Interface
 //

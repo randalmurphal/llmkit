@@ -87,6 +87,106 @@ func TestBuildExecArgs_ResumeLast(t *testing.T) {
 	}
 }
 
+func TestBuildExecArgs_ResumeFiltersUnsupportedFlags(t *testing.T) {
+	// Create a client with ALL options set — including those not supported by `exec resume`
+	client := NewCodexCLI(
+		WithSessionID("thr_abc123"),
+		WithModel("gpt-5.3-codex"),
+		WithProfile("ci"),
+		WithLocalProvider("ollama"),
+		WithSandboxMode(SandboxWorkspaceWrite),
+		WithApprovalMode(ApprovalNever),
+		WithOutputSchema("/tmp/schema.json"),
+		WithOutputLastMessage("/tmp/last.txt"),
+		WithOSS(),
+		WithColorMode("always"),
+		WithAddDir("/extra"),
+		WithWorkdir("/work"),
+		WithDangerouslyBypassApprovalsAndSandbox(),
+		WithSkipGitRepoCheck(),
+		WithEnabledFeatures([]string{"project_doc"}),
+		WithDisabledFeatures([]string{"legacy_mode"}),
+		WithConfigOverrides(map[string]any{"foo": "bar"}),
+		WithImage("/tmp/i.png"),
+	)
+
+	args := client.buildExecArgs(CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "continue"}}})
+
+	// Must start with: exec resume <session_id> --json
+	if len(args) < 4 {
+		t.Fatalf("short args: %v", args)
+	}
+	if args[0] != "exec" || args[1] != "resume" || args[2] != "thr_abc123" || args[3] != "--json" {
+		t.Fatalf("unexpected prefix: %v", args[:4])
+	}
+
+	// Flags that SHOULD be present on resume
+	assertArgPair(t, args, "--model", "gpt-5.3-codex")
+	if !slices.Contains(args, "--dangerously-bypass-approvals-and-sandbox") {
+		t.Fatalf("expected --dangerously-bypass-approvals-and-sandbox in resume args: %v", args)
+	}
+	if !slices.Contains(args, "--skip-git-repo-check") {
+		t.Fatalf("expected --skip-git-repo-check in resume args: %v", args)
+	}
+	assertArgPair(t, args, "--enable", "project_doc")
+	assertArgPair(t, args, "--disable", "legacy_mode")
+	assertArgPair(t, args, "--image", "/tmp/i.png")
+	requireConfigOverride(t, args, `foo="bar"`)
+
+	// Flags that must NOT be present on resume
+	forbidden := []string{
+		"--profile", "--local-provider", "--oss", "--color",
+		"--sandbox", "--ask-for-approval",
+		"--cd", "--add-dir",
+		"--output-schema", "--output-last-message",
+	}
+	for _, flag := range forbidden {
+		if slices.Contains(args, flag) {
+			t.Fatalf("resume args must NOT contain %q, but got: %v", flag, args)
+		}
+	}
+}
+
+func TestBuildExecArgs_FreshExecIncludesAllFlags(t *testing.T) {
+	// Same options as above but NO session ID — should include ALL flags
+	client := NewCodexCLI(
+		WithModel("gpt-5.3-codex"),
+		WithProfile("ci"),
+		WithLocalProvider("ollama"),
+		WithSandboxMode(SandboxWorkspaceWrite),
+		WithApprovalMode(ApprovalNever),
+		WithOutputSchema("/tmp/schema.json"),
+		WithOutputLastMessage("/tmp/last.txt"),
+		WithOSS(),
+		WithColorMode("always"),
+		WithAddDir("/extra"),
+		WithWorkdir("/work"),
+		WithSkipGitRepoCheck(),
+	)
+
+	args := client.buildExecArgs(CompletionRequest{Messages: []Message{{Role: RoleUser, Content: "hello"}}})
+
+	// Must start with: exec --json (no resume)
+	if args[0] != "exec" || args[1] != "--json" {
+		t.Fatalf("unexpected prefix for fresh exec: %v", args[:2])
+	}
+
+	// All flags should be present
+	assertArgPair(t, args, "--model", "gpt-5.3-codex")
+	assertArgPair(t, args, "--profile", "ci")
+	assertArgPair(t, args, "--local-provider", "ollama")
+	assertArgPair(t, args, "--sandbox", string(SandboxWorkspaceWrite))
+	assertArgPair(t, args, "--ask-for-approval", string(ApprovalNever))
+	assertArgPair(t, args, "--output-schema", "/tmp/schema.json")
+	assertArgPair(t, args, "--output-last-message", "/tmp/last.txt")
+	assertArgPair(t, args, "--color", "always")
+	assertArgPair(t, args, "--add-dir", "/extra")
+	assertArgPair(t, args, "--cd", "/work")
+	if !slices.Contains(args, "--oss") {
+		t.Fatalf("expected --oss in fresh exec args: %v", args)
+	}
+}
+
 func TestBuildExecArgs_SearchModes(t *testing.T) {
 	t.Run("legacy search flag", func(t *testing.T) {
 		client := NewCodexCLI(WithSearch())

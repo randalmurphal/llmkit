@@ -573,9 +573,10 @@ func (c *CodexCLI) buildArgsWithCleanup(req CompletionRequest) ([]string, func()
 
 func (c *CodexCLI) buildExecArgs(req CompletionRequest) []string {
 	resumeID := strings.TrimSpace(c.sessionID)
+	isResume := resumeID != ""
 
 	args := []string{codexcontract.CommandExec}
-	if resumeID != "" {
+	if isResume {
 		args = append(args, codexcontract.CommandResume)
 		if strings.EqualFold(resumeID, "last") {
 			args = append(args, "--last")
@@ -587,6 +588,7 @@ func (c *CodexCLI) buildExecArgs(req CompletionRequest) []string {
 		}
 	}
 
+	// Flags accepted by both `exec` and `exec resume`
 	args = append(args, codexcontract.FlagJSON)
 
 	model := c.model
@@ -597,18 +599,24 @@ func (c *CodexCLI) buildExecArgs(req CompletionRequest) []string {
 		args = append(args, codexcontract.FlagModel, model)
 	}
 
-	if c.profile != "" {
-		args = append(args, codexcontract.FlagProfile, c.profile)
+	// Flags NOT accepted by `exec resume` — skip when resuming.
+	// Verified against `codex exec resume --help` (v0.98.0).
+	// setupCmd() sets cmd.Dir for --cd, and sessions retain --output-schema.
+	if !isResume {
+		if c.profile != "" {
+			args = append(args, codexcontract.FlagProfile, c.profile)
+		}
+		if c.localProvider != "" {
+			args = append(args, codexcontract.FlagLocalProvider, c.localProvider)
+		}
+		if c.useOSS {
+			args = append(args, codexcontract.FlagOSS)
+		}
+		if c.colorMode != "" {
+			args = append(args, codexcontract.FlagColor, c.colorMode)
+		}
 	}
-	if c.localProvider != "" {
-		args = append(args, codexcontract.FlagLocalProvider, c.localProvider)
-	}
-	if c.useOSS {
-		args = append(args, codexcontract.FlagOSS)
-	}
-	if c.colorMode != "" {
-		args = append(args, codexcontract.FlagColor, c.colorMode)
-	}
+
 	for _, feature := range c.enabledFeatures {
 		if feature == "" {
 			continue
@@ -633,20 +641,28 @@ func (c *CodexCLI) buildExecArgs(req CompletionRequest) []string {
 		args = append(args, codexcontract.FlagDangerouslyBypassApprovalsSandbox)
 	}
 
-	if c.sandboxMode != "" && !c.dangerouslyBypassApprovalsAndSandbox {
-		args = append(args, codexcontract.FlagSandbox, string(c.sandboxMode))
-	}
-	if c.approvalMode != "" && !c.dangerouslyBypassApprovalsAndSandbox {
-		args = append(args, codexcontract.FlagAskForApproval, string(c.approvalMode))
+	// --sandbox and --ask-for-approval are not accepted by `exec resume`
+	if !isResume {
+		if c.sandboxMode != "" && !c.dangerouslyBypassApprovalsAndSandbox {
+			args = append(args, codexcontract.FlagSandbox, string(c.sandboxMode))
+		}
+		if c.approvalMode != "" && !c.dangerouslyBypassApprovalsAndSandbox {
+			args = append(args, codexcontract.FlagAskForApproval, string(c.approvalMode))
+		}
 	}
 
-	if c.workdir != "" {
-		args = append(args, codexcontract.FlagCD, c.workdir)
+	// --cd and --add-dir are not accepted by `exec resume`.
+	// Working directory is handled by setupCmd() setting cmd.Dir.
+	if !isResume {
+		if c.workdir != "" {
+			args = append(args, codexcontract.FlagCD, c.workdir)
+		}
+
+		for _, dir := range c.addDirs {
+			args = append(args, codexcontract.FlagAddDir, dir)
+		}
 	}
 
-	for _, dir := range c.addDirs {
-		args = append(args, codexcontract.FlagAddDir, dir)
-	}
 	for _, img := range c.images {
 		args = append(args, codexcontract.FlagImage, img)
 	}
@@ -665,22 +681,27 @@ func (c *CodexCLI) buildExecArgs(req CompletionRequest) []string {
 		reqForOverrides.ConfigOverrides["web_search"] = string(WebSearchLive)
 	}
 
-	outputSchemaPath := c.outputSchemaPath
-	if req.OutputSchemaPath != "" {
-		outputSchemaPath = req.OutputSchemaPath
-	}
-	if outputSchemaPath != "" {
-		args = append(args, codexcontract.FlagOutputSchema, outputSchemaPath)
+	// --output-schema and --output-last-message are not accepted by `exec resume`.
+	// Sessions retain the output schema from the original run.
+	if !isResume {
+		outputSchemaPath := c.outputSchemaPath
+		if req.OutputSchemaPath != "" {
+			outputSchemaPath = req.OutputSchemaPath
+		}
+		if outputSchemaPath != "" {
+			args = append(args, codexcontract.FlagOutputSchema, outputSchemaPath)
+		}
+
+		outputLastMessagePath := c.outputLastMessagePath
+		if req.OutputLastMessagePath != "" {
+			outputLastMessagePath = req.OutputLastMessagePath
+		}
+		if outputLastMessagePath != "" {
+			args = append(args, codexcontract.FlagOutputLastMessage, outputLastMessagePath)
+		}
 	}
 
-	outputLastMessagePath := c.outputLastMessagePath
-	if req.OutputLastMessagePath != "" {
-		outputLastMessagePath = req.OutputLastMessagePath
-	}
-	if outputLastMessagePath != "" {
-		args = append(args, codexcontract.FlagOutputLastMessage, outputLastMessagePath)
-	}
-
+	// -c config overrides are accepted by both exec and exec resume
 	for _, override := range c.mergedConfigOverrides(reqForOverrides) {
 		args = append(args, codexcontract.FlagConfig, override)
 	}
@@ -1185,54 +1206,6 @@ func firstNonZeroInt(values ...int) int {
 		}
 	}
 	return 0
-}
-
-// Resume resumes a previous session by ID.
-// Use sessionID="last" to resume the most recent session.
-func (c *CodexCLI) Resume(ctx context.Context, sessionID, prompt string) (*CompletionResponse, error) {
-	ctx, cancel := c.withTimeoutContext(ctx)
-	defer cancel()
-
-	start := time.Now()
-
-	args := []string{codexcontract.CommandExec, codexcontract.CommandResume}
-	if strings.EqualFold(strings.TrimSpace(sessionID), "last") || strings.TrimSpace(sessionID) == "" {
-		args = append(args, "--last")
-		if c.resumeAll {
-			args = append(args, codexcontract.FlagAll)
-		}
-	} else {
-		args = append(args, sessionID)
-	}
-	args = append(args, codexcontract.FlagJSON)
-	if prompt != "" {
-		args = append(args, prompt)
-	}
-
-	cmd := exec.CommandContext(ctx, c.resolvedPath(), args...)
-	c.setupCmd(cmd)
-	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return nil, NewError("resume", ctx.Err(), false)
-		}
-		errMsg := sanitizeStderr(stderr.String())
-		retryable := isRetryableError(errMsg)
-		return nil, NewError("resume", fmt.Errorf("%w: %s", err, errMsg), retryable)
-	}
-
-	resp := c.parseResponse(stdout.Bytes())
-	resp.Duration = time.Since(start)
-	if resp.SessionID == "" {
-		resp.SessionID = sessionID
-	}
-	return resp, nil
 }
 
 // isRetryableError checks if an error message indicates a transient error.
