@@ -257,9 +257,9 @@ func (c *Config) Validate() error {
 	if c.ReasoningEffort != "" {
 		re := strings.ToLower(c.ReasoningEffort)
 		switch re {
-		case "minimal", "low", "medium", "high":
+		case "minimal", "low", "medium", "high", "xhigh":
 		default:
-			return fmt.Errorf("invalid reasoning_effort: %q (must be minimal, low, medium, or high)", c.ReasoningEffort)
+			return fmt.Errorf("invalid reasoning_effort: %q (must be minimal, low, medium, high, or xhigh)", c.ReasoningEffort)
 		}
 	}
 	if c.ColorMode != "" {
