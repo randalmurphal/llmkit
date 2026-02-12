@@ -647,17 +647,33 @@ func (c *ClaudeCLI) processStreamJSON(
 	defer close(events)
 
 	scanner := bufio.NewScanner(stdout)
-	// Increase buffer size for large messages (10MB max)
-	const maxScanTokenSize = 10 * 1024 * 1024
+	// Increase buffer size for large messages (100MB max).
+	// Claude CLI stream-json events can be very large in long agentic sessions,
+	// especially with verbose mode and many tool results.
+	const maxScanTokenSize = 100 * 1024 * 1024
 	scanner.Buffer(make([]byte, 64*1024), maxScanTokenSize)
 
 	var sessionID string
 	var finalResult *ResultEvent
+	var maxLineSize int
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
+		}
+
+		// Track largest line for diagnostics
+		if len(line) > maxLineSize {
+			maxLineSize = len(line)
+			if maxLineSize > 1*1024*1024 {
+				// Log when any single line exceeds 1MB — helps diagnose buffer issues
+				slog.Warn("large stream-json line detected",
+					"size_bytes", len(line),
+					"size_mb", fmt.Sprintf("%.1f", float64(len(line))/(1024*1024)),
+					"preview", string(line[:min(200, len(line))]),
+				)
+			}
 		}
 
 		event, err := parseStreamEvent(line)
