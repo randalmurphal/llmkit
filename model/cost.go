@@ -6,15 +6,19 @@ import (
 
 // Usage tracks token usage for a model.
 type Usage struct {
-	InputTokens  int
-	OutputTokens int
-	Requests     int
+	InputTokens              int
+	OutputTokens             int
+	CacheCreationInputTokens int
+	CacheReadInputTokens     int
+	Requests                 int
 }
 
 // Add adds the given usage to this usage.
 func (u *Usage) Add(other Usage) {
 	u.InputTokens += other.InputTokens
 	u.OutputTokens += other.OutputTokens
+	u.CacheCreationInputTokens += other.CacheCreationInputTokens
+	u.CacheReadInputTokens += other.CacheReadInputTokens
 	u.Requests += other.Requests
 }
 
@@ -25,15 +29,20 @@ func (u *Usage) TotalTokens() int {
 
 // ModelPricing holds per-million-token pricing for a model.
 type ModelPricing struct {
-	InputPerMillion  float64
-	OutputPerMillion float64
+	InputPerMillion          float64
+	OutputPerMillion         float64
+	CacheCreationPerMillion  float64
+	CacheReadPerMillion      float64
 }
 
-// ModelPrices contains current pricing for Claude models (as of 2025).
+// ModelPrices contains current pricing for Claude models.
+// Source: https://platform.claude.com/docs/en/about-claude/pricing
+// Current generation: Opus 4.5/4.6, Sonnet 4/4.5, Haiku 4.5
+// 5-minute cache writes = 1.25x base input; cache reads = 0.1x base input.
 var ModelPrices = map[ModelName]ModelPricing{
-	ModelOpus:   {InputPerMillion: 15.0, OutputPerMillion: 75.0},
-	ModelSonnet: {InputPerMillion: 3.0, OutputPerMillion: 15.0},
-	ModelHaiku:  {InputPerMillion: 0.25, OutputPerMillion: 1.25},
+	ModelOpus:   {InputPerMillion: 5.0, OutputPerMillion: 25.0, CacheCreationPerMillion: 6.25, CacheReadPerMillion: 0.50},
+	ModelSonnet: {InputPerMillion: 3.0, OutputPerMillion: 15.0, CacheCreationPerMillion: 3.75, CacheReadPerMillion: 0.30},
+	ModelHaiku:  {InputPerMillion: 1.0, OutputPerMillion: 5.0, CacheCreationPerMillion: 1.25, CacheReadPerMillion: 0.10},
 }
 
 // CostTracker tracks token usage and estimated costs across models.
@@ -102,6 +111,15 @@ func (t *CostTracker) TotalUsage() Usage {
 	return total
 }
 
+// usageCost calculates the cost of a usage record against a pricing model.
+func usageCost(usage Usage, prices ModelPricing) float64 {
+	inputCost := float64(usage.InputTokens) / 1_000_000 * prices.InputPerMillion
+	outputCost := float64(usage.OutputTokens) / 1_000_000 * prices.OutputPerMillion
+	cacheCreateCost := float64(usage.CacheCreationInputTokens) / 1_000_000 * prices.CacheCreationPerMillion
+	cacheReadCost := float64(usage.CacheReadInputTokens) / 1_000_000 * prices.CacheReadPerMillion
+	return inputCost + outputCost + cacheCreateCost + cacheReadCost
+}
+
 // EstimatedCost calculates the estimated cost based on current pricing.
 func (t *CostTracker) EstimatedCost() float64 {
 	t.mu.RLock()
@@ -111,11 +129,12 @@ func (t *CostTracker) EstimatedCost() float64 {
 	for model, usage := range t.totals {
 		prices, ok := ModelPrices[model]
 		if !ok {
-			continue
+			prices, ok = ModelPrices[NormalizeModelName(string(model))]
+			if !ok {
+				continue
+			}
 		}
-		inputCost := float64(usage.InputTokens) / 1_000_000 * prices.InputPerMillion
-		outputCost := float64(usage.OutputTokens) / 1_000_000 * prices.OutputPerMillion
-		total += inputCost + outputCost
+		total += usageCost(usage, prices)
 	}
 	return total
 }
@@ -129,11 +148,12 @@ func (t *CostTracker) EstimatedCostByModel() map[ModelName]float64 {
 	for model, usage := range t.totals {
 		prices, ok := ModelPrices[model]
 		if !ok {
-			continue
+			prices, ok = ModelPrices[NormalizeModelName(string(model))]
+			if !ok {
+				continue
+			}
 		}
-		inputCost := float64(usage.InputTokens) / 1_000_000 * prices.InputPerMillion
-		outputCost := float64(usage.OutputTokens) / 1_000_000 * prices.OutputPerMillion
-		result[model] = inputCost + outputCost
+		result[model] = usageCost(usage, prices)
 	}
 	return result
 }

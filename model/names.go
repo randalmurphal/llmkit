@@ -9,6 +9,8 @@
 // (like devflow) can define their own task types and map them to model tiers.
 package model
 
+import "strings"
+
 // ModelName represents a Claude model name.
 type ModelName string
 
@@ -45,7 +47,7 @@ func (t Tier) String() string {
 
 // TierForModel returns the tier for a given model.
 func TierForModel(model ModelName) Tier {
-	switch model {
+	switch NormalizeModelName(string(model)) {
 	case ModelOpus:
 		return TierThinking
 	case ModelHaiku:
@@ -53,4 +55,26 @@ func TierForModel(model ModelName) Tier {
 	default:
 		return TierDefault
 	}
+}
+
+// NormalizeModelName converts a full model identifier to its tier alias.
+// For example, "claude-sonnet-4-20250514" becomes "sonnet" and
+// "claude-opus-4-5-20251101" becomes "opus". If the name is already
+// a tier alias or doesn't match any known pattern, it is returned as-is.
+func NormalizeModelName(name string) ModelName {
+	switch ModelName(name) {
+	case ModelOpus, ModelSonnet, ModelHaiku:
+		return ModelName(name)
+	}
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "opus") {
+		return ModelOpus
+	}
+	if strings.Contains(lower, "sonnet") {
+		return ModelSonnet
+	}
+	if strings.Contains(lower, "haiku") {
+		return ModelHaiku
+	}
+	return ModelName(name)
 }

@@ -468,8 +468,48 @@ func TestCostTracker(t *testing.T) {
 		if costs[ModelSonnet] != 3.0 {
 			t.Errorf("Sonnet cost = %f, want 3.0", costs[ModelSonnet])
 		}
-		if costs[ModelOpus] != 15.0 {
-			t.Errorf("Opus cost = %f, want 15.0", costs[ModelOpus])
+		if costs[ModelOpus] != 5.0 {
+			t.Errorf("Opus cost = %f, want 5.0", costs[ModelOpus])
+		}
+	})
+
+	t.Run("cache-aware cost", func(t *testing.T) {
+		tracker := NewCostTracker()
+		// Record usage with cache tokens for sonnet:
+		//   100K input tokens @ $3/MTok = $0.30
+		//   50K output tokens @ $15/MTok = $0.75
+		//   200K cache creation tokens @ $3.75/MTok = $0.75
+		//   500K cache read tokens @ $0.30/MTok = $0.15
+		//   Total = $1.95
+		tracker.RecordUsage(ModelSonnet, Usage{
+			InputTokens:              100_000,
+			OutputTokens:             50_000,
+			CacheCreationInputTokens: 200_000,
+			CacheReadInputTokens:     500_000,
+			Requests:                 1,
+		})
+
+		cost := tracker.EstimatedCost()
+		expected := 0.30 + 0.75 + 0.75 + 0.15 // $1.95
+		if cost != expected {
+			t.Errorf("EstimatedCost() with cache = %f, want %f", cost, expected)
+		}
+	})
+
+	t.Run("full model name cost lookup", func(t *testing.T) {
+		tracker := NewCostTracker()
+		// Use a full model name instead of tier alias
+		tracker.Record(ModelName("claude-sonnet-4-20250514"), 1_000_000, 0)
+
+		cost := tracker.EstimatedCost()
+		if cost != 3.0 {
+			t.Errorf("EstimatedCost() with full model name = %f, want 3.0", cost)
+		}
+
+		costs := tracker.EstimatedCostByModel()
+		if costs[ModelName("claude-sonnet-4-20250514")] != 3.0 {
+			t.Errorf("EstimatedCostByModel() with full model name = %f, want 3.0",
+				costs[ModelName("claude-sonnet-4-20250514")])
 		}
 	})
 
@@ -515,12 +555,91 @@ func TestUsage(t *testing.T) {
 		}
 	})
 
+	t.Run("add with cache fields", func(t *testing.T) {
+		u1 := Usage{
+			InputTokens:              100,
+			OutputTokens:             50,
+			CacheCreationInputTokens: 1000,
+			CacheReadInputTokens:     2000,
+			Requests:                 1,
+		}
+		u2 := Usage{
+			InputTokens:              200,
+			OutputTokens:             100,
+			CacheCreationInputTokens: 500,
+			CacheReadInputTokens:     3000,
+			Requests:                 2,
+		}
+
+		u1.Add(u2)
+		if u1.CacheCreationInputTokens != 1500 {
+			t.Errorf("CacheCreationInputTokens = %d, want 1500", u1.CacheCreationInputTokens)
+		}
+		if u1.CacheReadInputTokens != 5000 {
+			t.Errorf("CacheReadInputTokens = %d, want 5000", u1.CacheReadInputTokens)
+		}
+	})
+
 	t.Run("total tokens", func(t *testing.T) {
 		u := Usage{InputTokens: 100, OutputTokens: 50}
 		if got := u.TotalTokens(); got != 150 {
 			t.Errorf("TotalTokens() = %d, want 150", got)
 		}
 	})
+}
+
+func TestNormalizeModelName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected ModelName
+	}{
+		// Already-normalized tier aliases
+		{"opus", ModelOpus},
+		{"sonnet", ModelSonnet},
+		{"haiku", ModelHaiku},
+		// Full Claude model names (real-world values from CLI output)
+		{"claude-opus-4-5-20251101", ModelOpus},
+		{"claude-opus-4-6-20260115", ModelOpus},
+		{"claude-sonnet-4-20250514", ModelSonnet},
+		{"claude-sonnet-4-5-20250929", ModelSonnet},
+		{"claude-haiku-4-5-20251001", ModelHaiku},
+		// Older model names
+		{"claude-3-opus-20240229", ModelOpus},
+		{"claude-3-haiku-20240307", ModelHaiku},
+		{"claude-3-5-sonnet-20241022", ModelSonnet},
+		// Unknown models returned as-is
+		{"gpt-4o", ModelName("gpt-4o")},
+		{"unknown-model", ModelName("unknown-model")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := NormalizeModelName(tt.input)
+			if got != tt.expected {
+				t.Errorf("NormalizeModelName(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestTierForModelWithFullNames(t *testing.T) {
+	tests := []struct {
+		model    ModelName
+		expected Tier
+	}{
+		{ModelName("claude-opus-4-5-20251101"), TierThinking},
+		{ModelName("claude-sonnet-4-20250514"), TierDefault},
+		{ModelName("claude-haiku-4-5-20251001"), TierFast},
+		{ModelName("gpt-4o"), TierDefault},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.model), func(t *testing.T) {
+			if got := TierForModel(tt.model); got != tt.expected {
+				t.Errorf("TierForModel(%s) = %s, want %s", tt.model, got, tt.expected)
+			}
+		})
+	}
 }
 
 func TestWithTaskOverrides(t *testing.T) {

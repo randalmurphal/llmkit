@@ -9,6 +9,7 @@ package claudecontract
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -17,7 +18,7 @@ import (
 
 // TestedCLIVersion is the Claude CLI version this code was tested against.
 // When the detected CLI version is newer, a warning is logged.
-const TestedCLIVersion = "2.1.19"
+const TestedCLIVersion = "2.1.42"
 
 // CLIVersion represents a parsed Claude CLI version.
 type CLIVersion struct {
@@ -70,12 +71,28 @@ func DetectCLIVersion(claudePath string) (*CLIVersion, error) {
 		claudePath = "claude"
 	}
 
-	out, err := exec.Command(claudePath, "--version").Output()
+	cmd := exec.Command(claudePath, "--version")
+	// Clear CLAUDECODE env var so the CLI doesn't refuse to start
+	// when called from within a Claude Code session.
+	cmd.Env = filterEnv(os.Environ(), "CLAUDECODE")
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to run %s --version: %w", claudePath, err)
 	}
 
 	return ParseVersion(string(out))
+}
+
+// filterEnv returns a copy of env with any entries matching the given prefix removed.
+func filterEnv(env []string, prefix string) []string {
+	prefix += "="
+	result := make([]string, 0, len(env))
+	for _, e := range env {
+		if !strings.HasPrefix(e, prefix) {
+			result = append(result, e)
+		}
+	}
+	return result
 }
 
 // String returns the version as a string.

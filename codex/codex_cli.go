@@ -314,9 +314,11 @@ func WithEnvVar(key, value string) CodexOption {
 
 // CLIUsage contains token usage from the CLI response.
 type CLIUsage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	TotalTokens              int `json:"total_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // CLIToolCall represents a tool call event.
@@ -1058,9 +1060,11 @@ func parseUsage(v any) *TokenUsage {
 		return nil
 	}
 	usage := &TokenUsage{
-		InputTokens:  firstNonZeroInt(toInt(m["input_tokens"]), toInt(m["inputTokens"])),
-		OutputTokens: firstNonZeroInt(toInt(m["output_tokens"]), toInt(m["outputTokens"])),
-		TotalTokens:  firstNonZeroInt(toInt(m["total_tokens"]), toInt(m["totalTokens"])),
+		InputTokens:              firstNonZeroInt(toInt(m["input_tokens"]), toInt(m["inputTokens"])),
+		OutputTokens:             firstNonZeroInt(toInt(m["output_tokens"]), toInt(m["outputTokens"])),
+		TotalTokens:              firstNonZeroInt(toInt(m["total_tokens"]), toInt(m["totalTokens"])),
+		CacheCreationInputTokens: firstNonZeroInt(toInt(m["cache_creation_input_tokens"]), toInt(m["cacheCreationInputTokens"])),
+		CacheReadInputTokens:     firstNonZeroInt(toInt(m["cache_read_input_tokens"]), toInt(m["cacheReadInputTokens"])),
 	}
 	if usage.TotalTokens == 0 && (usage.InputTokens > 0 || usage.OutputTokens > 0) {
 		usage.TotalTokens = usage.InputTokens + usage.OutputTokens

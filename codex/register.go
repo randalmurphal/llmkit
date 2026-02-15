@@ -276,9 +276,11 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req provider.Request)
 			// Convert usage
 			if chunk.Usage != nil {
 				providerChunk.Usage = &provider.TokenUsage{
-					InputTokens:  chunk.Usage.InputTokens,
-					OutputTokens: chunk.Usage.OutputTokens,
-					TotalTokens:  chunk.Usage.TotalTokens,
+					InputTokens:              chunk.Usage.InputTokens,
+					OutputTokens:             chunk.Usage.OutputTokens,
+					TotalTokens:              chunk.Usage.TotalTokens,
+					CacheCreationInputTokens: chunk.Usage.CacheCreationInputTokens,
+					CacheReadInputTokens:     chunk.Usage.CacheReadInputTokens,
 				}
 			}
 
@@ -328,9 +330,11 @@ func (a *codexProviderAdapter) convertResponse(resp *CompletionResponse) *provid
 		CostUSD:      resp.CostUSD,
 		NumTurns:     resp.NumTurns,
 		Usage: provider.TokenUsage{
-			InputTokens:  resp.Usage.InputTokens,
-			OutputTokens: resp.Usage.OutputTokens,
-			TotalTokens:  resp.Usage.TotalTokens,
+			InputTokens:              resp.Usage.InputTokens,
+			OutputTokens:             resp.Usage.OutputTokens,
+			TotalTokens:              resp.Usage.TotalTokens,
+			CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
 		},
 	}
 

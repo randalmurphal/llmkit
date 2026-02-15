@@ -50,6 +50,9 @@ func TestFlagNameFormat(t *testing.T) {
 		FlagIncludePartialMessages,
 		FlagReplayUserMessages,
 		FlagPluginDir,
+		FlagDebugFile,
+		FlagEffort,
+		FlagFromPR,
 	}
 
 	for _, flag := range flags {

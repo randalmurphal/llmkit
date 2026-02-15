@@ -1,6 +1,7 @@
 package claudecontract
 
 import (
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -35,7 +36,7 @@ func TestFlagsExistInHelp(t *testing.T) {
 	}
 
 	// Get help output
-	cmd := exec.Command(claudePath, "--help")
+	cmd := claudeCmd(claudePath, "--help")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to get CLI help: %v", err)
@@ -76,7 +77,7 @@ func TestOutputFormatsValid(t *testing.T) {
 		t.Skip("Claude CLI not found, skipping format validation")
 	}
 
-	cmd := exec.Command(claudePath, "--help")
+	cmd := claudeCmd(claudePath, "--help")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to get CLI help: %v", err)
@@ -99,7 +100,7 @@ func TestPermissionModesValid(t *testing.T) {
 		t.Skip("Claude CLI not found, skipping permission mode validation")
 	}
 
-	cmd := exec.Command(claudePath, "--help")
+	cmd := claudeCmd(claudePath, "--help")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to get CLI help: %v", err)
@@ -131,7 +132,7 @@ func TestDetectNewFlags(t *testing.T) {
 		t.Skip("Claude CLI not found, skipping new flag detection")
 	}
 
-	cmd := exec.Command(claudePath, "--help")
+	cmd := claudeCmd(claudePath, "--help")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to get CLI help: %v", err)
@@ -187,6 +188,9 @@ func TestDetectNewFlags(t *testing.T) {
 		"include-partial-messages":           true,
 		"replay-user-messages":               true,
 		"plugin-dir":                         true,
+		"debug-file":                         true,
+		"effort":                             true,
+		"from-pr":                            true,
 	}
 
 	// Report any flags we don't know about
@@ -213,31 +217,39 @@ func TestDetectNewFlags(t *testing.T) {
 
 // findClaudeCLI locates the claude CLI binary.
 func findClaudeCLI() (string, error) {
+	home, _ := os.UserHomeDir()
+
 	// Try common locations
 	locations := []string{
-		"claude",                 // In PATH
-		"~/.local/bin/claude",    // User install
-		"~/.claude/local/claude", // Claude Code internal
-		"/usr/local/bin/claude",  // System install
+		"claude",                             // In PATH
+		home + "/.local/bin/claude",          // User install
+		home + "/.claude/local/claude",       // Claude Code internal
+		"/usr/local/bin/claude",              // System install
 	}
 
 	for _, loc := range locations {
-		// Expand ~ to home directory
-		if strings.HasPrefix(loc, "~") {
-			loc = strings.Replace(loc, "~", "$HOME", 1)
-		}
 		path, err := exec.LookPath(loc)
 		if err == nil {
 			return path, nil
 		}
 	}
 
-	// Try which command
-	cmd := exec.Command("which", "claude")
-	output, err := cmd.Output()
-	if err == nil {
-		return strings.TrimSpace(string(output)), nil
-	}
-
 	return "", exec.ErrNotFound
+}
+
+// claudeCmd creates an exec.Command for the claude CLI that is safe to run
+// inside a Claude Code session by unsetting the CLAUDECODE env var.
+func claudeCmd(claudePath string, args ...string) *exec.Cmd {
+	cmd := exec.Command(claudePath, args...)
+	// Build env without CLAUDECODE so the CLI doesn't refuse to start
+	// when tests are run inside a Claude Code session.
+	env := os.Environ()
+	filtered := env[:0]
+	for _, e := range env {
+		if !strings.HasPrefix(e, "CLAUDECODE=") {
+			filtered = append(filtered, e)
+		}
+	}
+	cmd.Env = filtered
+	return cmd
 }

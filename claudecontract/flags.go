@@ -74,8 +74,15 @@ const (
 	FlagReplayUserMessages     = "--replay-user-messages"     // Re-emit user messages [UNTESTED]
 
 	// Debug flags
-	FlagDebug = "--debug" // Debug mode with optional filter [UNTESTED]
-	FlagBetas = "--betas" // Beta headers (repeatable) [UNTESTED]
+	FlagDebug     = "--debug"      // Debug mode with optional filter [UNTESTED]
+	FlagDebugFile = "--debug-file" // Write debug output to file [UNTESTED]
+	FlagBetas     = "--betas"      // Beta headers (repeatable) [UNTESTED]
+
+	// Reasoning flags
+	FlagEffort = "--effort" // Reasoning effort level [UNTESTED]
+
+	// PR integration flags
+	FlagFromPR = "--from-pr" // Load PR context [UNTESTED]
 
 	// Skill flags
 	FlagDisableSlashCommands = "--disable-slash-commands" // Disable all skills [UNTESTED]
@@ -148,7 +155,10 @@ func UntestedFlags() []string {
 		FlagIncludePartialMessages,
 		FlagReplayUserMessages,
 		FlagDebug,
+		FlagDebugFile,
 		FlagBetas,
+		FlagEffort,
+		FlagFromPR,
 		FlagDisableSlashCommands,
 		FlagInit,
 		FlagInitOnly,

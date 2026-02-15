@@ -3,7 +3,6 @@ package claudecontract
 import (
 	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,7 +17,7 @@ func TestGoldenHelpOutput(t *testing.T) {
 	}
 
 	// Get current help output
-	cmd := exec.Command(claudePath, "--help")
+	cmd := claudeCmd(claudePath, "--help")
 	currentOutput, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to get CLI help: %v", err)
@@ -109,7 +108,7 @@ func TestEventTypesWithRealCLI(t *testing.T) {
 	}
 
 	// Run a minimal command to get stream-json output
-	cmd := exec.Command(claudePath,
+	cmd := claudeCmd(claudePath,
 		"--print",
 		"--output-format", "stream-json",
 		"--dangerously-skip-permissions",
