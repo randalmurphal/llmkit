@@ -34,9 +34,19 @@ func TestTierForModel(t *testing.T) {
 		model        ModelName
 		expectedTier Tier
 	}{
+		// Claude
 		{ModelOpus, TierThinking},
 		{ModelSonnet, TierDefault},
 		{ModelHaiku, TierFast},
+		// Codex
+		{ModelCodex, TierDefault},
+		{ModelCodexSpark, TierFast},
+		{ModelCodexMini, TierFast},
+		// GPT
+		{ModelGPT, TierDefault},
+		{ModelGPTMini, TierFast},
+		{ModelGPTPro, TierThinking},
+		// Unknown
 		{ModelName("unknown"), TierDefault},
 	}
 
@@ -513,6 +523,140 @@ func TestCostTracker(t *testing.T) {
 		}
 	})
 
+	t.Run("codex model cost", func(t *testing.T) {
+		tracker := NewCostTracker()
+		// 1M input tokens at codex = $1.75
+		// 1M output tokens at codex = $14.00
+		tracker.Record(ModelCodex, 1_000_000, 1_000_000)
+
+		cost := tracker.EstimatedCost()
+		expected := 1.75 + 14.0
+		if cost != expected {
+			t.Errorf("EstimatedCost() codex = %f, want %f", cost, expected)
+		}
+	})
+
+	t.Run("codex-mini model cost", func(t *testing.T) {
+		tracker := NewCostTracker()
+		// 1M input at codex-mini = $0.25
+		// 1M output at codex-mini = $2.00
+		tracker.Record(ModelCodexMini, 1_000_000, 1_000_000)
+
+		cost := tracker.EstimatedCost()
+		expected := 0.25 + 2.0
+		if cost != expected {
+			t.Errorf("EstimatedCost() codex-mini = %f, want %f", cost, expected)
+		}
+	})
+
+	t.Run("codex full model name cost lookup", func(t *testing.T) {
+		tracker := NewCostTracker()
+		// Use full model names — normalization fallback should resolve to family pricing
+		tracker.Record(ModelName("gpt-5.3-codex"), 1_000_000, 0)
+		tracker.Record(ModelName("gpt-5.2-codex"), 1_000_000, 0)
+		tracker.Record(ModelName("gpt-5.1-codex-mini"), 1_000_000, 0)
+
+		costs := tracker.EstimatedCostByModel()
+		if costs[ModelName("gpt-5.3-codex")] != 1.75 {
+			t.Errorf("gpt-5.3-codex input cost = %f, want 1.75", costs[ModelName("gpt-5.3-codex")])
+		}
+		if costs[ModelName("gpt-5.2-codex")] != 1.75 {
+			t.Errorf("gpt-5.2-codex input cost = %f, want 1.75", costs[ModelName("gpt-5.2-codex")])
+		}
+		if costs[ModelName("gpt-5.1-codex-mini")] != 0.25 {
+			t.Errorf("gpt-5.1-codex-mini input cost = %f, want 0.25", costs[ModelName("gpt-5.1-codex-mini")])
+		}
+	})
+
+	t.Run("codex cache-aware cost", func(t *testing.T) {
+		tracker := NewCostTracker()
+		// Codex with cache reads:
+		//   1M input @ $1.75/MTok = $1.75
+		//   1M output @ $14.00/MTok = $14.00
+		//   1M cache read @ $0.175/MTok = $0.175
+		//   Total = $15.925
+		tracker.RecordUsage(ModelCodex, Usage{
+			InputTokens:          1_000_000,
+			OutputTokens:         1_000_000,
+			CacheReadInputTokens: 1_000_000,
+			Requests:             1,
+		})
+
+		cost := tracker.EstimatedCost()
+		expected := 1.75 + 14.0 + 0.175
+		if cost != expected {
+			t.Errorf("EstimatedCost() codex with cache = %f, want %f", cost, expected)
+		}
+	})
+
+	t.Run("codex-spark has no pricing", func(t *testing.T) {
+		tracker := NewCostTracker()
+		// codex-spark has no API pricing yet — cost should be 0
+		tracker.Record(ModelCodexSpark, 1_000_000, 1_000_000)
+
+		cost := tracker.EstimatedCost()
+		if cost != 0 {
+			t.Errorf("EstimatedCost() codex-spark = %f, want 0 (no pricing)", cost)
+		}
+	})
+
+	t.Run("gpt model cost", func(t *testing.T) {
+		tracker := NewCostTracker()
+		// 1M input at gpt = $1.75, 1M output at gpt = $14.00
+		tracker.Record(ModelGPT, 1_000_000, 1_000_000)
+
+		cost := tracker.EstimatedCost()
+		expected := 1.75 + 14.0
+		if cost != expected {
+			t.Errorf("EstimatedCost() gpt = %f, want %f", cost, expected)
+		}
+	})
+
+	t.Run("gpt-mini model cost", func(t *testing.T) {
+		tracker := NewCostTracker()
+		tracker.Record(ModelGPTMini, 1_000_000, 1_000_000)
+
+		cost := tracker.EstimatedCost()
+		expected := 0.25 + 2.0
+		if cost != expected {
+			t.Errorf("EstimatedCost() gpt-mini = %f, want %f", cost, expected)
+		}
+	})
+
+	t.Run("gpt-pro model cost", func(t *testing.T) {
+		tracker := NewCostTracker()
+		// 1M input at gpt-pro = $15.00, 1M output = $120.00
+		tracker.Record(ModelGPTPro, 1_000_000, 1_000_000)
+
+		cost := tracker.EstimatedCost()
+		expected := 15.0 + 120.0
+		if cost != expected {
+			t.Errorf("EstimatedCost() gpt-pro = %f, want %f", cost, expected)
+		}
+	})
+
+	t.Run("gpt full model name cost lookup", func(t *testing.T) {
+		tracker := NewCostTracker()
+		tracker.Record(ModelName("gpt-5.3"), 1_000_000, 0)
+		tracker.Record(ModelName("gpt-5.2"), 1_000_000, 0)
+		tracker.Record(ModelName("gpt-5-mini"), 1_000_000, 0)
+		tracker.Record(ModelName("gpt-5-pro"), 1_000_000, 0)
+
+		costs := tracker.EstimatedCostByModel()
+		if costs[ModelName("gpt-5.3")] != 1.75 {
+			t.Errorf("gpt-5.3 input cost = %f, want 1.75", costs[ModelName("gpt-5.3")])
+		}
+		if costs[ModelName("gpt-5.2")] != 1.75 {
+			t.Errorf("gpt-5.2 input cost = %f, want 1.75", costs[ModelName("gpt-5.2")])
+		}
+		if costs[ModelName("gpt-5-mini")] != 0.25 {
+			t.Errorf("gpt-5-mini input cost = %f, want 0.25", costs[ModelName("gpt-5-mini")])
+		}
+		if costs[ModelName("gpt-5-pro")] != 15.0 {
+			t.Errorf("gpt-5-pro input cost = %f, want 15.0", costs[ModelName("gpt-5-pro")])
+		}
+	})
+
 	t.Run("reset", func(t *testing.T) {
 		tracker := NewCostTracker()
 		tracker.Record(ModelSonnet, 1000, 500)
@@ -593,7 +737,7 @@ func TestNormalizeModelName(t *testing.T) {
 		input    string
 		expected ModelName
 	}{
-		// Already-normalized tier aliases
+		// Already-normalized Claude family aliases
 		{"opus", ModelOpus},
 		{"sonnet", ModelSonnet},
 		{"haiku", ModelHaiku},
@@ -603,13 +747,50 @@ func TestNormalizeModelName(t *testing.T) {
 		{"claude-sonnet-4-20250514", ModelSonnet},
 		{"claude-sonnet-4-5-20250929", ModelSonnet},
 		{"claude-haiku-4-5-20251001", ModelHaiku},
-		// Older model names
+		// Older Claude model names
 		{"claude-3-opus-20240229", ModelOpus},
 		{"claude-3-haiku-20240307", ModelHaiku},
 		{"claude-3-5-sonnet-20241022", ModelSonnet},
+
+		// Already-normalized Codex family aliases
+		{"codex", ModelCodex},
+		{"codex-spark", ModelCodexSpark},
+		{"codex-mini", ModelCodexMini},
+		// Full Codex model names (real-world values from CLI --model flag)
+		{"gpt-5.3-codex", ModelCodex},
+		{"gpt-5.3-codex-spark", ModelCodexSpark},
+		{"gpt-5.2-codex", ModelCodex},
+		{"gpt-5.1-codex", ModelCodex},
+		{"gpt-5.1-codex-max", ModelCodex},
+		{"gpt-5-codex", ModelCodex},
+		{"gpt-5.1-codex-mini", ModelCodexMini},
+		{"gpt-5-codex-mini", ModelCodexMini},
+		// Codex with underscore separators
+		{"gpt_5.3_codex_spark", ModelCodexSpark},
+		{"gpt_5.1_codex_mini", ModelCodexMini},
+
+		// Already-normalized GPT family aliases
+		{"gpt", ModelGPT},
+		{"gpt-mini", ModelGPTMini},
+		{"gpt-pro", ModelGPTPro},
+		// Full GPT model names (non-codex, general-purpose)
+		{"gpt-5.3", ModelGPT},
+		{"gpt-5.2", ModelGPT},
+		{"gpt-5.1", ModelGPT},
+		{"gpt-5", ModelGPT},
+		{"gpt-5-mini", ModelGPTMini},
+		{"gpt-5-nano", ModelGPTMini},
+		{"gpt-5-pro", ModelGPTPro},
+		{"gpt-5.2-pro", ModelGPTPro},
+		// GPT chat variants
+		{"gpt-5.2-chat", ModelGPT},
+		{"gpt-5.1-chat", ModelGPT},
+
 		// Unknown models returned as-is
 		{"gpt-4o", ModelName("gpt-4o")},
 		{"unknown-model", ModelName("unknown-model")},
+		// "opencode" should NOT match "codex"
+		{"opencode", ModelName("opencode")},
 	}
 
 	for _, tt := range tests {
@@ -627,9 +808,33 @@ func TestTierForModelWithFullNames(t *testing.T) {
 		model    ModelName
 		expected Tier
 	}{
+		// Claude
 		{ModelName("claude-opus-4-5-20251101"), TierThinking},
 		{ModelName("claude-sonnet-4-20250514"), TierDefault},
 		{ModelName("claude-haiku-4-5-20251001"), TierFast},
+		// Codex
+		{ModelName("gpt-5.3-codex"), TierDefault},
+		{ModelName("gpt-5.3-codex-spark"), TierFast},
+		{ModelName("gpt-5.2-codex"), TierDefault},
+		{ModelName("gpt-5.1-codex-mini"), TierFast},
+		{ModelName("gpt-5.1-codex-max"), TierDefault},
+		// Codex normalized aliases
+		{ModelCodex, TierDefault},
+		{ModelCodexSpark, TierFast},
+		{ModelCodexMini, TierFast},
+		// GPT (non-codex)
+		{ModelName("gpt-5.3"), TierDefault},
+		{ModelName("gpt-5.2"), TierDefault},
+		{ModelName("gpt-5"), TierDefault},
+		{ModelName("gpt-5-mini"), TierFast},
+		{ModelName("gpt-5-nano"), TierFast},
+		{ModelName("gpt-5-pro"), TierThinking},
+		{ModelName("gpt-5.2-pro"), TierThinking},
+		// GPT normalized aliases
+		{ModelGPT, TierDefault},
+		{ModelGPTMini, TierFast},
+		{ModelGPTPro, TierThinking},
+		// Unknown
 		{ModelName("gpt-4o"), TierDefault},
 	}
 

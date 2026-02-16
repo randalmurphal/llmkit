@@ -22,10 +22,25 @@
 ```go
 type ModelName string
 
+// Claude
 const (
     ModelOpus   ModelName = "opus"
     ModelSonnet ModelName = "sonnet"
     ModelHaiku  ModelName = "haiku"
+)
+
+// Codex (agentic coding)
+const (
+    ModelCodex      ModelName = "codex"        // gpt-5.x-codex
+    ModelCodexSpark ModelName = "codex-spark"   // gpt-5.3-codex-spark (fast)
+    ModelCodexMini  ModelName = "codex-mini"    // gpt-5.x-codex-mini (cheap)
+)
+
+// GPT (general-purpose)
+const (
+    ModelGPT     ModelName = "gpt"       // gpt-5, gpt-5.1, gpt-5.2, gpt-5.3
+    ModelGPTMini ModelName = "gpt-mini"  // gpt-5-mini, gpt-5-nano
+    ModelGPTPro  ModelName = "gpt-pro"   // gpt-5-pro, gpt-5.2-pro
 )
 ```
 
@@ -202,21 +217,60 @@ m := selector.SelectForTier(model.TierDefault)
 
 ---
 
-## Pricing (as of 2025)
+## Pricing
 
-| Model | Input (per 1M) | Output (per 1M) |
-|-------|----------------|-----------------|
-| Opus | $15.00 | $75.00 |
-| Sonnet | $3.00 | $15.00 |
-| Haiku | $0.25 | $1.25 |
+### Claude (as of 2026)
 
-Prices are used by `CostTracker.EstimatedCost()`.
+| Model | Input/1M | Output/1M | Cache Create/1M | Cache Read/1M |
+|-------|----------|-----------|-----------------|---------------|
+| Opus | $5.00 | $25.00 | $6.25 | $0.50 |
+| Sonnet | $3.00 | $15.00 | $3.75 | $0.30 |
+| Haiku | $1.00 | $5.00 | $1.25 | $0.10 |
+
+### Codex (as of 2026)
+
+| Model | Input/1M | Output/1M | Cache Read/1M |
+|-------|----------|-----------|---------------|
+| codex (gpt-5.3-codex) | $1.75 | $14.00 | $0.175 |
+| codex-mini (gpt-5.1-codex-mini) | $0.25 | $2.00 | $0.025 |
+| codex-spark (gpt-5.3-codex-spark) | N/A (research preview, no API pricing yet) | | |
+
+### GPT General-Purpose (as of 2026)
+
+| Model | Input/1M | Output/1M | Cache Read/1M |
+|-------|----------|-----------|---------------|
+| gpt (gpt-5.2) | $1.75 | $14.00 | $0.175 |
+| gpt-mini (gpt-5-mini) | $0.25 | $2.00 | $0.025 |
+| gpt-pro (gpt-5-pro) | $15.00 | $120.00 | — |
+
+Prices are used by `CostTracker.EstimatedCost()`. Full model names (e.g., `gpt-5.3-codex`) are normalized to family names for price lookup.
+
+---
+
+## Reasoning Effort (Codex/GPT Models)
+
+Reasoning effort is set via the codex package, not the model package:
+
+```go
+// Client-level default
+client := codex.NewCodexCLI(codex.WithReasoningEffort("high"))
+
+// Per-request override
+req := codex.CompletionRequest{
+    ConfigOverrides: map[string]any{"model_reasoning_effort": "medium"},
+}
+```
+
+Valid values: `minimal`, `low`, `medium`, `high`, `xhigh`
 
 ---
 
 ## Notes
 
-- Model names are abstract ("opus", "sonnet", "haiku") not full IDs
+- Model names are family aliases ("opus", "sonnet", "codex", "gpt", "gpt-pro") not full IDs
+- `NormalizeModelName()` maps full model strings to family aliases
+- Codex models (contain "codex") are checked before GPT patterns
+- `gpt-4o` and older models are NOT matched — only `gpt-5+` is normalized
 - Task-type agnostic: define your own task types
 - Thread-safe: Selector and CostTracker are concurrent-safe
 - Prices may be updated in future versions

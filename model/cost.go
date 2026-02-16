@@ -35,14 +35,32 @@ type ModelPricing struct {
 	CacheReadPerMillion      float64
 }
 
-// ModelPrices contains current pricing for Claude models.
-// Source: https://platform.claude.com/docs/en/about-claude/pricing
-// Current generation: Opus 4.5/4.6, Sonnet 4/4.5, Haiku 4.5
-// 5-minute cache writes = 1.25x base input; cache reads = 0.1x base input.
+// ModelPrices contains current pricing for supported model families.
+//
+// Claude pricing source: https://platform.claude.com/docs/en/about-claude/pricing
+//   Current generation: Opus 4.5/4.6, Sonnet 4/4.5, Haiku 4.5
+//   Cache writes = 1.25x base input; cache reads = 0.1x base input.
+//
+// Codex/OpenAI pricing source: https://developers.openai.com/api/docs/pricing
+//   codex: gpt-5.3-codex/gpt-5.2-codex ($1.75/$14.00, cache read 0.1x input)
+//   codex-mini: gpt-5.1-codex-mini ($0.25/$2.00, cache read 0.1x input)
+//   codex-spark: research preview, no API pricing yet
+//   gpt: gpt-5.2 pricing ($1.75/$14.00, cache read 0.1x input)
+//   gpt-mini: gpt-5-mini ($0.25/$2.00, cache read 0.1x input)
+//   gpt-pro: gpt-5-pro ($15.00/$120.00)
 var ModelPrices = map[ModelName]ModelPricing{
+	// Claude
 	ModelOpus:   {InputPerMillion: 5.0, OutputPerMillion: 25.0, CacheCreationPerMillion: 6.25, CacheReadPerMillion: 0.50},
 	ModelSonnet: {InputPerMillion: 3.0, OutputPerMillion: 15.0, CacheCreationPerMillion: 3.75, CacheReadPerMillion: 0.30},
 	ModelHaiku:  {InputPerMillion: 1.0, OutputPerMillion: 5.0, CacheCreationPerMillion: 1.25, CacheReadPerMillion: 0.10},
+	// Codex (agentic coding)
+	ModelCodex:     {InputPerMillion: 1.75, OutputPerMillion: 14.0, CacheReadPerMillion: 0.175},
+	ModelCodexMini: {InputPerMillion: 0.25, OutputPerMillion: 2.0, CacheReadPerMillion: 0.025},
+	// ModelCodexSpark: research preview, no API pricing; add when published.
+	// GPT (general-purpose)
+	ModelGPT:     {InputPerMillion: 1.75, OutputPerMillion: 14.0, CacheReadPerMillion: 0.175},
+	ModelGPTMini: {InputPerMillion: 0.25, OutputPerMillion: 2.0, CacheReadPerMillion: 0.025},
+	ModelGPTPro:  {InputPerMillion: 15.0, OutputPerMillion: 120.0},
 }
 
 // CostTracker tracks token usage and estimated costs across models.
