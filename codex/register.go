@@ -256,9 +256,11 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req provider.Request)
 		defer close(providerStream)
 		for chunk := range codexStream {
 			providerChunk := provider.StreamChunk{
-				Content: chunk.Content,
-				Done:    chunk.Done,
-				Error:   chunk.Error,
+				Content:      chunk.Content,
+				FinalContent: chunk.FinalContent,
+				SessionID:    chunk.SessionID,
+				Done:         chunk.Done,
+				Error:        chunk.Error,
 			}
 
 			// Convert tool calls

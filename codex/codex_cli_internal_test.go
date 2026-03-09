@@ -229,14 +229,14 @@ func TestParseEventLine_ModernHeadlessEvents(t *testing.T) {
 		t.Fatalf("tool call args should be valid json: %s", string(e3.ToolCalls[0].Arguments))
 	}
 
-	e4, err := parseEventLine([]byte(`{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":4},"output":[{"type":"message","content":[{"type":"output_text","text":"Hello world"}]}]}`))
+	e4, err := parseEventLine([]byte(`{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":4,"cached_input_tokens":7},"output":[{"type":"message","content":[{"type":"output_text","text":"Hello world"}]}]}`))
 	if err != nil {
 		t.Fatalf("parse turn.completed: %v", err)
 	}
 	if !e4.Done {
 		t.Fatal("expected done=true for turn.completed")
 	}
-	if e4.Usage == nil || e4.Usage.TotalTokens != 14 {
+	if e4.Usage == nil || e4.Usage.TotalTokens != 14 || e4.Usage.CacheReadInputTokens != 7 {
 		t.Fatalf("unexpected usage: %#v", e4.Usage)
 	}
 	if e4.Text != "Hello world" || !e4.TextFromTurnOutput {
@@ -250,6 +250,7 @@ func TestParseResponse_ModernJSONL(t *testing.T) {
 		`{"type":"thread.started","thread_id":"thr_abc"}`,
 		`{"type":"item.updated","item":{"id":"m1","type":"agent_message","delta":"Hello "}}`,
 		`{"type":"item.completed","item":{"id":"m1","type":"agent_message","text":"world"}}`,
+		`{"type":"usage","usage":{"cached_input_tokens":8}}`,
 		`{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":2},"output":[{"type":"message","content":[{"type":"output_text","text":"Hello world"}]}]}`,
 	}, "\n")
 
@@ -260,8 +261,25 @@ func TestParseResponse_ModernJSONL(t *testing.T) {
 	if resp.Content != "Hello world" {
 		t.Fatalf("expected content Hello world, got %q", resp.Content)
 	}
-	if resp.Usage.InputTokens != 5 || resp.Usage.OutputTokens != 2 || resp.Usage.TotalTokens != 7 {
+	if resp.Usage.InputTokens != 5 || resp.Usage.OutputTokens != 2 || resp.Usage.TotalTokens != 7 || resp.Usage.CacheReadInputTokens != 8 {
 		t.Fatalf("unexpected usage: %+v", resp.Usage)
+	}
+}
+
+func TestParseResponse_UsesAuthoritativeTurnOutputWhenItDiffers(t *testing.T) {
+	client := NewCodexCLI(WithModel("gpt-5-codex"))
+	data := strings.Join([]string{
+		`{"type":"thread.started","thread_id":"thr_replace"}`,
+		`{"type":"item.updated","item":{"id":"m1","type":"agent_message","delta":"partial "}}`,
+		`{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":3},"output":[{"type":"message","content":[{"type":"output_text","text":"final answer"}]}]}`,
+	}, "\n")
+
+	resp := client.parseResponse([]byte(data))
+	if resp.SessionID != "thr_replace" {
+		t.Fatalf("expected session id thr_replace, got %q", resp.SessionID)
+	}
+	if resp.Content != "final answer" {
+		t.Fatalf("expected content final answer, got %q", resp.Content)
 	}
 }
 

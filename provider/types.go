@@ -205,8 +205,14 @@ func (u *TokenUsage) Add(other TokenUsage) {
 
 // StreamChunk is a piece of a streaming response.
 type StreamChunk struct {
-	// Content is the text content in this chunk.
+	// Content is the streamed text content in this chunk.
 	Content string `json:"content,omitempty"`
+
+	// FinalContent is the authoritative final assistant text when it differs from streamed deltas.
+	FinalContent string `json:"final_content,omitempty"`
+
+	// SessionID identifies the provider session/thread associated with this stream.
+	SessionID string `json:"session_id,omitempty"`
 
 	// ToolCalls contains tool invocations (usually only in final chunks).
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`

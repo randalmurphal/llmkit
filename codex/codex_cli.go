@@ -477,6 +477,9 @@ func (c *CodexCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan St
 
 		var sawTerminal bool
 		var sawText bool
+		var sessionID string
+		var currentUsage *TokenUsage
+		var streamedText strings.Builder
 	scanLoop:
 		for scanner.Scan() {
 			line := bytes.TrimSpace(scanner.Bytes())
@@ -494,33 +497,48 @@ func (c *CodexCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan St
 				continue
 			}
 
+			if event.SessionID != "" {
+				sessionID = event.SessionID
+			}
+			if event.Usage != nil {
+				currentUsage = mergeUsage(currentUsage, event.Usage)
+			}
 			if event.Text != "" {
-				if event.TextFromTurnOutput && sawText {
-					// Avoid duplicate final text when turn output mirrors streamed deltas.
-				} else {
+				if !event.TextFromTurnOutput {
 					sawText = true
-					if !sendChunk(ctx, ch, StreamChunk{Content: event.Text}) {
+					streamedText.WriteString(event.Text)
+					if !sendChunk(ctx, ch, StreamChunk{Content: event.Text, SessionID: sessionID}) {
 						return
 					}
 				}
 			}
 			if len(event.ToolCalls) > 0 {
-				if !sendChunk(ctx, ch, StreamChunk{ToolCalls: event.ToolCalls}) {
+				if !sendChunk(ctx, ch, StreamChunk{ToolCalls: event.ToolCalls, SessionID: sessionID}) {
 					return
 				}
 			}
 			if event.ErrMsg != "" {
 				sawTerminal = true
-				if !sendChunk(ctx, ch, StreamChunk{Error: NewError("stream", fmt.Errorf("%s", event.ErrMsg), false)}) {
+				if !sendChunk(ctx, ch, StreamChunk{Error: NewError("stream", fmt.Errorf("%s", event.ErrMsg), false), SessionID: sessionID}) {
 					return
 				}
 				break scanLoop
 			}
 			if event.Done {
 				sawTerminal = true
-				chunk := StreamChunk{Done: true}
-				if event.Usage != nil {
-					chunk.Usage = event.Usage
+				chunk := StreamChunk{Done: true, SessionID: sessionID}
+				if currentUsage != nil {
+					chunk.Usage = currentUsage
+				}
+				if event.TextFromTurnOutput {
+					finalText := event.Text
+					if !sawText {
+						chunk.Content = finalText
+						streamedText.WriteString(finalText)
+						sawText = finalText != ""
+					} else if finalText != "" && finalText != streamedText.String() {
+						chunk.FinalContent = finalText
+					}
 				}
 				if !sendChunk(ctx, ch, chunk) {
 					return
@@ -530,13 +548,13 @@ func (c *CodexCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan St
 		}
 
 		if err := scanner.Err(); err != nil {
-			_ = sendChunk(ctx, ch, StreamChunk{Error: NewError("stream", fmt.Errorf("read output: %w", err), false)})
+			_ = sendChunk(ctx, ch, StreamChunk{Error: NewError("stream", fmt.Errorf("read output: %w", err), false), SessionID: sessionID})
 			return
 		}
 
 		if waitErr := cmd.Wait(); waitErr != nil {
 			if ctx.Err() != nil {
-				_ = sendChunk(ctx, ch, StreamChunk{Error: ctx.Err()})
+				_ = sendChunk(ctx, ch, StreamChunk{Error: ctx.Err(), SessionID: sessionID})
 				return
 			}
 			if !sawTerminal {
@@ -544,13 +562,13 @@ func (c *CodexCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan St
 				if errMsg == "" {
 					errMsg = waitErr.Error()
 				}
-				_ = sendChunk(ctx, ch, StreamChunk{Error: NewError("stream", fmt.Errorf("%s", errMsg), isRetryableError(errMsg))})
+				_ = sendChunk(ctx, ch, StreamChunk{Error: NewError("stream", fmt.Errorf("%s", errMsg), isRetryableError(errMsg)), SessionID: sessionID})
 			}
 			return
 		}
 
 		if !sawTerminal {
-			_ = sendChunk(ctx, ch, StreamChunk{Done: true})
+			_ = sendChunk(ctx, ch, StreamChunk{Done: true, SessionID: sessionID})
 		}
 	}()
 
@@ -853,13 +871,20 @@ func (c *CodexCLI) parseResponse(data []byte) *CompletionResponse {
 			resp.SessionID = event.SessionID
 		}
 		if event.Usage != nil {
-			resp.Usage = *event.Usage
+			resp.Usage = *mergeUsage(&resp.Usage, event.Usage)
 		}
 		if len(event.ToolCalls) > 0 {
 			toolCalls = append(toolCalls, event.ToolCalls...)
 		}
 		if event.Text != "" {
-			if !(event.TextFromTurnOutput && sawText) {
+			if event.TextFromTurnOutput && sawText {
+				finalText := strings.TrimSpace(event.Text)
+				currentText := strings.TrimSpace(contentBuilder.String())
+				if finalText != "" && finalText != currentText {
+					contentBuilder.Reset()
+					contentBuilder.WriteString(finalText)
+				}
+			} else {
 				sawText = true
 				contentBuilder.WriteString(event.Text)
 			}
@@ -1064,15 +1089,58 @@ func parseUsage(v any) *TokenUsage {
 		OutputTokens:             firstNonZeroInt(toInt(m["output_tokens"]), toInt(m["outputTokens"])),
 		TotalTokens:              firstNonZeroInt(toInt(m["total_tokens"]), toInt(m["totalTokens"])),
 		CacheCreationInputTokens: firstNonZeroInt(toInt(m["cache_creation_input_tokens"]), toInt(m["cacheCreationInputTokens"])),
-		CacheReadInputTokens:     firstNonZeroInt(toInt(m["cache_read_input_tokens"]), toInt(m["cacheReadInputTokens"])),
+		CacheReadInputTokens: firstNonZeroInt(
+			toInt(m["cache_read_input_tokens"]),
+			toInt(m["cacheReadInputTokens"]),
+			toInt(m["cached_input_tokens"]),
+			toInt(m["cachedInputTokens"]),
+		),
 	}
 	if usage.TotalTokens == 0 && (usage.InputTokens > 0 || usage.OutputTokens > 0) {
 		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	}
-	if usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.TotalTokens == 0 {
+	if usage.TotalTokens == 0 && (usage.CacheCreationInputTokens > 0 || usage.CacheReadInputTokens > 0) {
+		usage.TotalTokens = usage.CacheCreationInputTokens + usage.CacheReadInputTokens
+	}
+	if usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.TotalTokens == 0 &&
+		usage.CacheCreationInputTokens == 0 && usage.CacheReadInputTokens == 0 {
 		return nil
 	}
 	return usage
+}
+
+func mergeUsage(base *TokenUsage, update *TokenUsage) *TokenUsage {
+	if base == nil && update == nil {
+		return nil
+	}
+
+	var merged TokenUsage
+	if base != nil {
+		merged = *base
+	}
+	if update == nil {
+		return &merged
+	}
+
+	if update.InputTokens != 0 {
+		merged.InputTokens = update.InputTokens
+	}
+	if update.OutputTokens != 0 {
+		merged.OutputTokens = update.OutputTokens
+	}
+	if update.TotalTokens != 0 {
+		merged.TotalTokens = update.TotalTokens
+	}
+	if update.CacheCreationInputTokens != 0 {
+		merged.CacheCreationInputTokens = update.CacheCreationInputTokens
+	}
+	if update.CacheReadInputTokens != 0 {
+		merged.CacheReadInputTokens = update.CacheReadInputTokens
+	}
+	if merged.TotalTokens == 0 {
+		merged.TotalTokens = merged.InputTokens + merged.OutputTokens + merged.CacheCreationInputTokens + merged.CacheReadInputTokens
+	}
+	return &merged
 }
 
 func parseResultText(v any) string {

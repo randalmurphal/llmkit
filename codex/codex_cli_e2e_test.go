@@ -90,6 +90,8 @@ func TestCodexCLI_Stream_E2EWithMockCLI(t *testing.T) {
 
 	var gotContent strings.Builder
 	var finalUsage *codex.TokenUsage
+	var finalContent string
+	var sessionID string
 	var gotDone bool
 	for chunk := range stream {
 		if chunk.Error != nil {
@@ -98,9 +100,13 @@ func TestCodexCLI_Stream_E2EWithMockCLI(t *testing.T) {
 		if chunk.Content != "" {
 			gotContent.WriteString(chunk.Content)
 		}
+		if chunk.SessionID != "" {
+			sessionID = chunk.SessionID
+		}
 		if chunk.Done {
 			gotDone = true
 			finalUsage = chunk.Usage
+			finalContent = chunk.FinalContent
 		}
 	}
 
@@ -113,7 +119,87 @@ func TestCodexCLI_Stream_E2EWithMockCLI(t *testing.T) {
 	if finalUsage == nil {
 		t.Fatal("expected final usage in done chunk")
 	}
-	if finalUsage.InputTokens != 3 || finalUsage.OutputTokens != 2 || finalUsage.TotalTokens != 5 {
+	if finalUsage.InputTokens != 3 || finalUsage.OutputTokens != 2 || finalUsage.TotalTokens != 5 || finalUsage.CacheReadInputTokens != 1 {
+		t.Fatalf("unexpected final usage: %+v", *finalUsage)
+	}
+	if sessionID != "thr_test" {
+		t.Fatalf("stream session id = %q, want %q", sessionID, "thr_test")
+	}
+	if finalContent != "" {
+		t.Fatalf("final content = %q, want empty when streamed deltas already match", finalContent)
+	}
+}
+
+func TestCodexCLI_Stream_E2EProvidesFinalContentWhenTurnOutputDiffers(t *testing.T) {
+	scriptPath := writeMockCodexScript(t)
+
+	client := codex.NewCodexCLI(
+		codex.WithCodexPath(scriptPath),
+		codex.WithEnv(map[string]string{
+			"CODEX_TEST_MODE": "mismatch_final",
+		}),
+	)
+
+	stream, err := client.Stream(context.Background(), codex.CompletionRequest{
+		Messages: []codex.Message{{Role: codex.RoleUser, Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Stream returned error: %v", err)
+	}
+
+	var gotContent strings.Builder
+	var finalContent string
+	for chunk := range stream {
+		if chunk.Error != nil {
+			t.Fatalf("stream chunk error: %v", chunk.Error)
+		}
+		if chunk.Content != "" {
+			gotContent.WriteString(chunk.Content)
+		}
+		if chunk.Done {
+			finalContent = chunk.FinalContent
+		}
+	}
+
+	if gotContent.String() != "partial " {
+		t.Fatalf("stream content = %q, want %q", gotContent.String(), "partial ")
+	}
+	if finalContent != "final answer" {
+		t.Fatalf("final content = %q, want %q", finalContent, "final answer")
+	}
+}
+
+func TestCodexCLI_Stream_E2EUsesStandaloneUsageEventOnDoneChunk(t *testing.T) {
+	scriptPath := writeMockCodexScript(t)
+
+	client := codex.NewCodexCLI(
+		codex.WithCodexPath(scriptPath),
+		codex.WithEnv(map[string]string{
+			"CODEX_TEST_MODE": "usage_then_done",
+		}),
+	)
+
+	stream, err := client.Stream(context.Background(), codex.CompletionRequest{
+		Messages: []codex.Message{{Role: codex.RoleUser, Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Stream returned error: %v", err)
+	}
+
+	var finalUsage *codex.TokenUsage
+	for chunk := range stream {
+		if chunk.Error != nil {
+			t.Fatalf("stream chunk error: %v", chunk.Error)
+		}
+		if chunk.Done {
+			finalUsage = chunk.Usage
+		}
+	}
+
+	if finalUsage == nil {
+		t.Fatal("expected final usage in done chunk")
+	}
+	if finalUsage.InputTokens != 4 || finalUsage.OutputTokens != 2 || finalUsage.TotalTokens != 6 || finalUsage.CacheReadInputTokens != 3 {
 		t.Fatalf("unexpected final usage: %+v", *finalUsage)
 	}
 }
@@ -263,7 +349,21 @@ case "$mode" in
 {"type":"thread.started","thread_id":"thr_test"}
 {"type":"item.updated","item":{"type":"agent_message","delta":"Hello "}}
 {"type":"item.completed","item":{"type":"agent_message","text":"world"}}
-{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2},"output":[{"type":"message","content":[{"type":"output_text","text":"Hello world"}]}]}
+{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2,"cached_input_tokens":1},"output":[{"type":"message","content":[{"type":"output_text","text":"Hello world"}]}]}
+JSON
+    ;;
+  mismatch_final)
+    cat <<'JSON'
+{"type":"thread.started","thread_id":"thr_test"}
+{"type":"item.updated","item":{"type":"agent_message","delta":"partial "}}
+{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2},"output":[{"type":"message","content":[{"type":"output_text","text":"final answer"}]}]}
+JSON
+    ;;
+  usage_then_done)
+    cat <<'JSON'
+{"type":"thread.started","thread_id":"thr_test"}
+{"type":"usage","usage":{"input_tokens":4,"output_tokens":2,"cached_input_tokens":3}}
+{"type":"done"}
 JSON
     ;;
   stderr_rate_limit)

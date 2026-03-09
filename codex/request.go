@@ -110,11 +110,13 @@ func (u *TokenUsage) Add(other TokenUsage) {
 
 // StreamChunk is a piece of a streaming response.
 type StreamChunk struct {
-	Content   string      `json:"content,omitempty"`
-	ToolCalls []ToolCall  `json:"tool_calls,omitempty"`
-	Usage     *TokenUsage `json:"usage,omitempty"` // Only set in final chunk
-	Done      bool        `json:"done"`
-	Error     error       `json:"-"` // Non-nil if streaming failed
+	Content      string      `json:"content,omitempty"`
+	FinalContent string      `json:"final_content,omitempty"`
+	SessionID    string      `json:"session_id,omitempty"`
+	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`
+	Usage        *TokenUsage `json:"usage,omitempty"` // Only set in final chunk
+	Done         bool        `json:"done"`
+	Error        error       `json:"-"` // Non-nil if streaming failed
 }
 
 // Capabilities describes what a provider natively supports.
