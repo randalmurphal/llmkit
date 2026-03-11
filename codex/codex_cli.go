@@ -517,6 +517,11 @@ func (c *CodexCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan St
 					return
 				}
 			}
+			if len(event.ToolResults) > 0 {
+				if !sendChunk(ctx, ch, StreamChunk{ToolResults: event.ToolResults, SessionID: sessionID}) {
+					return
+				}
+			}
 			if event.ErrMsg != "" {
 				sawTerminal = true
 				if !sendChunk(ctx, ch, StreamChunk{Error: NewError("stream", fmt.Errorf("%s", event.ErrMsg), false), SessionID: sessionID}) {
@@ -920,6 +925,7 @@ type parsedLineEvent struct {
 	Text               string
 	TextFromTurnOutput bool
 	ToolCalls          []ToolCall
+	ToolResults        []ToolResult
 	SessionID          string
 	Usage              *TokenUsage
 	Done               bool
@@ -977,8 +983,15 @@ func parseEventLine(line []byte) (*parsedLineEvent, error) {
 				if isAgentMessageType(itemType) {
 					parsed.Text = firstNonEmpty(getString(itemMap, "delta"), getString(itemMap, "text"), extractTextFromContent(itemMap["content"]))
 				}
-				if tc := parseToolCallFromItem(itemMap); tc != nil {
-					parsed.ToolCalls = append(parsed.ToolCalls, *tc)
+				if eventType == codexcontract.EventItemStarted {
+					if tc := parseToolCallFromItem(itemMap); tc != nil {
+						parsed.ToolCalls = append(parsed.ToolCalls, *tc)
+					}
+				}
+				if eventType == codexcontract.EventItemCompleted {
+					if tr := parseToolResultFromItem(itemMap); tr != nil {
+						parsed.ToolResults = append(parsed.ToolResults, *tr)
+					}
 				}
 			}
 		}
@@ -1076,6 +1089,38 @@ func parseToolCallMap(m map[string]any) *ToolCall {
 		ID:        getString(m, "id"),
 		Name:      name,
 		Arguments: args,
+	}
+}
+
+func parseToolResultFromItem(item map[string]any) *ToolResult {
+	itemType := strings.ToLower(getString(item, "type"))
+	if !strings.Contains(itemType, "tool") && !strings.Contains(itemType, "command") {
+		return nil
+	}
+
+	output := firstNonEmpty(
+		getString(item, "aggregated_output"),
+		getString(item, "output"),
+		getString(item, "result"),
+	)
+	status := getString(item, "status")
+
+	var exitCode *int
+	if raw, ok := item["exit_code"]; ok && raw != nil {
+		value := toInt(raw)
+		exitCode = &value
+	}
+
+	if output == "" && status == "" && exitCode == nil {
+		return nil
+	}
+
+	return &ToolResult{
+		ID:       getString(item, "id"),
+		Name:     firstNonEmpty(getString(item, "name"), getString(item, "tool_name"), getString(item, "command")),
+		Output:   output,
+		Status:   status,
+		ExitCode: exitCode,
 	}
 }
 

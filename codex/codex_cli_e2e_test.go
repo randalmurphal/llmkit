@@ -204,6 +204,52 @@ func TestCodexCLI_Stream_E2EUsesStandaloneUsageEventOnDoneChunk(t *testing.T) {
 	}
 }
 
+func TestCodexCLI_Stream_E2EToolResults(t *testing.T) {
+	scriptPath := writeMockCodexScript(t)
+
+	client := codex.NewCodexCLI(
+		codex.WithCodexPath(scriptPath),
+		codex.WithEnv(map[string]string{
+			"CODEX_TEST_MODE": "tool_output",
+		}),
+	)
+
+	stream, err := client.Stream(context.Background(), codex.CompletionRequest{
+		Messages: []codex.Message{{Role: codex.RoleUser, Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Stream returned error: %v", err)
+	}
+
+	var (
+		toolCalls   []codex.ToolCall
+		toolResults []codex.ToolResult
+	)
+	for chunk := range stream {
+		if chunk.Error != nil {
+			t.Fatalf("stream chunk error: %v", chunk.Error)
+		}
+		toolCalls = append(toolCalls, chunk.ToolCalls...)
+		toolResults = append(toolResults, chunk.ToolResults...)
+	}
+
+	if len(toolCalls) != 1 {
+		t.Fatalf("toolCalls len = %d, want 1", len(toolCalls))
+	}
+	if toolCalls[0].Name != "/bin/zsh -lc pwd" {
+		t.Fatalf("tool call name = %q, want %q", toolCalls[0].Name, "/bin/zsh -lc pwd")
+	}
+	if len(toolResults) != 1 {
+		t.Fatalf("toolResults len = %d, want 1", len(toolResults))
+	}
+	if toolResults[0].Output != "/repo\n" {
+		t.Fatalf("tool result output = %q, want %q", toolResults[0].Output, "/repo\n")
+	}
+	if toolResults[0].ExitCode == nil || *toolResults[0].ExitCode != 0 {
+		t.Fatalf("tool result exit code = %#v, want 0", toolResults[0].ExitCode)
+	}
+}
+
 func TestCodexCLI_ResumeViaComplete_E2EWithMockCLI(t *testing.T) {
 	scriptPath := writeMockCodexScript(t)
 	argsFile := filepath.Join(t.TempDir(), "args.txt")
@@ -364,6 +410,15 @@ JSON
 {"type":"thread.started","thread_id":"thr_test"}
 {"type":"usage","usage":{"input_tokens":4,"output_tokens":2,"cached_input_tokens":3}}
 {"type":"done"}
+JSON
+    ;;
+  tool_output)
+    cat <<'JSON'
+{"type":"thread.started","thread_id":"thr_test"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"/repo\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"type":"agent_message","text":"done"}}
+{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2},"output":[{"type":"message","content":[{"type":"output_text","text":"done"}]}]}
 JSON
     ;;
   stderr_rate_limit)

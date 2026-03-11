@@ -222,11 +222,36 @@ func TestParseEventLine_ModernHeadlessEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse item.completed: %v", err)
 	}
-	if len(e3.ToolCalls) != 1 || e3.ToolCalls[0].Name != "shell" {
-		t.Fatalf("unexpected tool calls: %#v", e3.ToolCalls)
+	if len(e3.ToolCalls) != 0 {
+		t.Fatalf("item.completed should not emit duplicate tool calls: %#v", e3.ToolCalls)
 	}
-	if !json.Valid(e3.ToolCalls[0].Arguments) {
-		t.Fatalf("tool call args should be valid json: %s", string(e3.ToolCalls[0].Arguments))
+	if len(e3.ToolResults) != 0 {
+		t.Fatalf("tool_call completion should not emit tool results: %#v", e3.ToolResults)
+	}
+
+	e3Started, err := parseEventLine([]byte(`{"type":"item.started","item":{"id":"call_1","type":"tool_call","name":"shell","arguments":{"command":"ls"}}}`))
+	if err != nil {
+		t.Fatalf("parse item.started: %v", err)
+	}
+	if len(e3Started.ToolCalls) != 1 || e3Started.ToolCalls[0].Name != "shell" {
+		t.Fatalf("unexpected tool calls: %#v", e3Started.ToolCalls)
+	}
+	if !json.Valid(e3Started.ToolCalls[0].Arguments) {
+		t.Fatalf("tool call args should be valid json: %s", string(e3Started.ToolCalls[0].Arguments))
+	}
+
+	e3Result, err := parseEventLine([]byte(`{"type":"item.completed","item":{"id":"cmd_1","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"/repo\n","exit_code":0,"status":"completed"}}`))
+	if err != nil {
+		t.Fatalf("parse command_execution result: %v", err)
+	}
+	if len(e3Result.ToolResults) != 1 {
+		t.Fatalf("expected command_execution tool result, got %#v", e3Result.ToolResults)
+	}
+	if e3Result.ToolResults[0].Name != "/bin/zsh -lc pwd" || e3Result.ToolResults[0].Output != "/repo\n" {
+		t.Fatalf("unexpected tool result: %#v", e3Result.ToolResults[0])
+	}
+	if e3Result.ToolResults[0].ExitCode == nil || *e3Result.ToolResults[0].ExitCode != 0 {
+		t.Fatalf("unexpected exit code: %#v", e3Result.ToolResults[0].ExitCode)
 	}
 
 	e4, err := parseEventLine([]byte(`{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":4,"cached_input_tokens":7},"output":[{"type":"message","content":[{"type":"output_text","text":"Hello world"}]}]}`))

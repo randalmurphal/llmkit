@@ -90,6 +90,15 @@ type ToolCall struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
+// ToolResult represents the output from a tool invocation.
+type ToolResult struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Output   string `json:"output,omitempty"`
+	Status   string `json:"status,omitempty"`
+	ExitCode *int   `json:"exit_code,omitempty"`
+}
+
 // TokenUsage tracks token consumption.
 type TokenUsage struct {
 	InputTokens              int `json:"input_tokens"`
@@ -110,13 +119,14 @@ func (u *TokenUsage) Add(other TokenUsage) {
 
 // StreamChunk is a piece of a streaming response.
 type StreamChunk struct {
-	Content      string      `json:"content,omitempty"`
-	FinalContent string      `json:"final_content,omitempty"`
-	SessionID    string      `json:"session_id,omitempty"`
-	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`
-	Usage        *TokenUsage `json:"usage,omitempty"` // Only set in final chunk
-	Done         bool        `json:"done"`
-	Error        error       `json:"-"` // Non-nil if streaming failed
+	Content      string       `json:"content,omitempty"`
+	FinalContent string       `json:"final_content,omitempty"`
+	SessionID    string       `json:"session_id,omitempty"`
+	ToolCalls    []ToolCall   `json:"tool_calls,omitempty"`
+	ToolResults  []ToolResult `json:"tool_results,omitempty"`
+	Usage        *TokenUsage  `json:"usage,omitempty"` // Only set in final chunk
+	Done         bool         `json:"done"`
+	Error        error        `json:"-"` // Non-nil if streaming failed
 }
 
 // Capabilities describes what a provider natively supports.
