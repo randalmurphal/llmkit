@@ -355,7 +355,11 @@ func TestCodexCLI_Complete_SetsWorkdirAndEnv(t *testing.T) {
 	}
 
 	cwd := strings.TrimSpace(readTextFile(t, cwdFile))
-	if cwd != workdir {
+	// On macOS, /var is a symlink to /private/var, so the process may see
+	// the resolved path. Resolve both sides for a fair comparison.
+	resolvedCwd, _ := filepath.EvalSymlinks(cwd)
+	resolvedWorkdir, _ := filepath.EvalSymlinks(workdir)
+	if resolvedCwd != resolvedWorkdir {
 		t.Fatalf("cwd = %q, want %q", cwd, workdir)
 	}
 

@@ -382,48 +382,30 @@ func (c *CodexCLI) withTimeoutContext(ctx context.Context) (context.Context, con
 }
 
 // Complete implements Client.
+// Internally streams the response and accumulates it into a CompletionResponse.
+// If req.OnEvent is set, it is called for each streaming chunk before processing.
 func (c *CodexCLI) Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error) {
-	ctx, cancel := c.withTimeoutContext(ctx)
-	defer cancel()
-
 	start := time.Now()
-	args, cleanup := c.buildArgsWithCleanup(req)
-	defer cleanup()
 
-	cmd := exec.CommandContext(ctx, c.resolvedPath(), args...)
-	c.setupCmd(cmd)
-	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	// Ensure child processes are terminated on context cancellation.
-	stopKill := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			if cmd.Process != nil {
-				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			}
-		case <-stopKill:
-		}
-	}()
-
-	err := cmd.Run()
-	close(stopKill)
+	chunks, err := c.Stream(ctx, req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, NewError("complete", ctx.Err(), false)
-		}
-		errMsg := sanitizeStderr(stderr.String())
-		retryable := isRetryableError(errMsg)
-		return nil, NewError("complete", fmt.Errorf("%w: %s", err, errMsg), retryable)
+		return nil, err
 	}
 
-	resp := c.parseResponse(stdout.Bytes())
-	resp.Duration = time.Since(start)
+	acc := NewStreamAccumulator()
+	if req.OnEvent != nil {
+		err = acc.ConsumeStreamWithCallback(chunks, func(chunk StreamChunk) bool {
+			req.OnEvent(chunk)
+			return true
+		})
+	} else {
+		err = acc.ConsumeStream(chunks)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	resp := acc.ToResponse(time.Since(start))
 	return resp, nil
 }
 

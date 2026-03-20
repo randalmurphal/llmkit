@@ -61,14 +61,44 @@ const (
 	// HookStop fires when Claude finishes responding.
 	HookStop HookEvent = "Stop"
 
+	// HookStopFailure fires when a turn ends due to an API error.
+	HookStopFailure HookEvent = "StopFailure"
+
 	// HookPreCompact fires before context compaction.
 	HookPreCompact HookEvent = "PreCompact"
+
+	// HookPostCompact fires after context compaction completes.
+	HookPostCompact HookEvent = "PostCompact"
 
 	// HookSessionEnd fires when a session terminates.
 	HookSessionEnd HookEvent = "SessionEnd"
 
 	// HookNotification fires when Claude Code sends notifications.
 	HookNotification HookEvent = "Notification"
+
+	// HookTeammateIdle fires when an agent team teammate is about to go idle.
+	HookTeammateIdle HookEvent = "TeammateIdle"
+
+	// HookTaskCompleted fires when a task is marked as completed.
+	HookTaskCompleted HookEvent = "TaskCompleted"
+
+	// HookInstructionsLoaded fires when CLAUDE.md or .claude/rules/*.md files are loaded.
+	HookInstructionsLoaded HookEvent = "InstructionsLoaded"
+
+	// HookConfigChange fires when a configuration file changes during a session.
+	HookConfigChange HookEvent = "ConfigChange"
+
+	// HookWorktreeCreate fires when a worktree is being created.
+	HookWorktreeCreate HookEvent = "WorktreeCreate"
+
+	// HookWorktreeRemove fires when a worktree is being removed.
+	HookWorktreeRemove HookEvent = "WorktreeRemove"
+
+	// HookElicitation fires when an MCP server requests user input.
+	HookElicitation HookEvent = "Elicitation"
+
+	// HookElicitationResult fires when the user responds to an MCP elicitation.
+	HookElicitationResult HookEvent = "ElicitationResult"
 )
 
 // ValidHookEvents returns all valid hook events.
@@ -83,9 +113,19 @@ func ValidHookEvents() []HookEvent {
 		HookSubagentStart,
 		HookSubagentStop,
 		HookStop,
+		HookStopFailure,
 		HookPreCompact,
+		HookPostCompact,
 		HookSessionEnd,
 		HookNotification,
+		HookTeammateIdle,
+		HookTaskCompleted,
+		HookInstructionsLoaded,
+		HookConfigChange,
+		HookWorktreeCreate,
+		HookWorktreeRemove,
+		HookElicitation,
+		HookElicitationResult,
 	}
 }
 

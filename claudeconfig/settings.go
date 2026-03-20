@@ -28,8 +28,16 @@ type Hook struct {
 
 // HookEntry represents a single hook action.
 type HookEntry struct {
-	Type    string `json:"type"`    // "command"
-	Command string `json:"command"` // Script or command to execute
+	Type          string            `json:"type"`                    // "command", "http", "prompt", "agent"
+	Command       string            `json:"command,omitempty"`       // Shell command (type="command")
+	URL           string            `json:"url,omitempty"`           // Endpoint URL (type="http")
+	Headers       map[string]string `json:"headers,omitempty"`       // HTTP headers (type="http"), supports $VAR interpolation
+	Prompt        string            `json:"prompt,omitempty"`        // Prompt text (type="prompt" or "agent")
+	Model         string            `json:"model,omitempty"`         // Model override (type="prompt" or "agent")
+	Async         bool              `json:"async,omitempty"`         // Run without blocking
+	Timeout       int               `json:"timeout,omitempty"`       // Timeout in seconds
+	StatusMessage string            `json:"statusMessage,omitempty"` // Status displayed while hook runs
+	Once          bool              `json:"once,omitempty"`          // Fire only once per session
 }
 
 // StatusLine represents the status line configuration.
@@ -38,26 +46,22 @@ type StatusLine struct {
 	Command string `json:"command,omitempty"`
 }
 
-// HookEvent represents valid hook event types.
-type HookEvent string
+// HookEvent is an alias for claudecontract.HookEvent.
+// Use claudecontract.HookEvent directly for new code.
+type HookEvent = claudecontract.HookEvent
 
+// Re-export commonly used hook events for backward compatibility.
 const (
-	HookPreToolUse  HookEvent = "PreToolUse"
-	HookPostToolUse HookEvent = "PostToolUse"
-	HookPreCompact  HookEvent = "PreCompact"
-	HookPrePrompt   HookEvent = "PrePrompt"
-	HookStop        HookEvent = "Stop"
+	HookPreToolUse  = claudecontract.HookPreToolUse
+	HookPostToolUse = claudecontract.HookPostToolUse
+	HookPreCompact  = claudecontract.HookPreCompact
+	HookStop        = claudecontract.HookStop
 )
 
 // ValidHookEvents returns all valid hook event types.
+// Delegates to claudecontract.ValidHookEvents().
 func ValidHookEvents() []HookEvent {
-	return []HookEvent{
-		HookPreToolUse,
-		HookPostToolUse,
-		HookPreCompact,
-		HookPrePrompt,
-		HookStop,
-	}
+	return claudecontract.ValidHookEvents()
 }
 
 // ToolPermissions defines allow/deny lists for Claude Code tools.

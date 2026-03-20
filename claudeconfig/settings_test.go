@@ -1,6 +1,7 @@
 package claudeconfig
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -299,11 +300,77 @@ func TestToolPermissions_Merge(t *testing.T) {
 
 func TestValidHookEvents(t *testing.T) {
 	events := ValidHookEvents()
+
+	// Delegates to claudecontract — should have all 22 events
+	assert.Len(t, events, 22)
 	assert.Contains(t, events, HookPreToolUse)
 	assert.Contains(t, events, HookPostToolUse)
 	assert.Contains(t, events, HookPreCompact)
-	assert.Contains(t, events, HookPrePrompt)
 	assert.Contains(t, events, HookStop)
+}
+
+func TestHookEntry_JSONRoundTrip(t *testing.T) {
+	entry := HookEntry{
+		Type:          "http",
+		URL:           "https://example.com/hook",
+		Headers:       map[string]string{"Authorization": "Bearer $TOKEN"},
+		Async:         true,
+		Timeout:       30,
+		StatusMessage: "Running hook...",
+		Once:          true,
+	}
+
+	data, err := json.Marshal(entry)
+	require.NoError(t, err)
+
+	var roundTripped HookEntry
+	require.NoError(t, json.Unmarshal(data, &roundTripped))
+
+	assert.Equal(t, entry.Type, roundTripped.Type)
+	assert.Equal(t, entry.URL, roundTripped.URL)
+	assert.Equal(t, entry.Headers, roundTripped.Headers)
+	assert.Equal(t, entry.Async, roundTripped.Async)
+	assert.Equal(t, entry.Timeout, roundTripped.Timeout)
+	assert.Equal(t, entry.StatusMessage, roundTripped.StatusMessage)
+	assert.Equal(t, entry.Once, roundTripped.Once)
+}
+
+func TestHookEntry_CommandType(t *testing.T) {
+	entry := HookEntry{
+		Type:    "command",
+		Command: "echo test",
+	}
+
+	data, err := json.Marshal(entry)
+	require.NoError(t, err)
+
+	var roundTripped HookEntry
+	require.NoError(t, json.Unmarshal(data, &roundTripped))
+
+	assert.Equal(t, "command", roundTripped.Type)
+	assert.Equal(t, "echo test", roundTripped.Command)
+	assert.Empty(t, roundTripped.URL)
+	assert.Empty(t, roundTripped.Prompt)
+}
+
+func TestHookEntry_PromptType(t *testing.T) {
+	entry := HookEntry{
+		Type:    "prompt",
+		Prompt:  "Analyze the changes for security issues",
+		Model:   "claude-sonnet-4-20250514",
+		Timeout: 30,
+	}
+
+	data, err := json.Marshal(entry)
+	require.NoError(t, err)
+
+	var roundTripped HookEntry
+	require.NoError(t, json.Unmarshal(data, &roundTripped))
+
+	assert.Equal(t, "prompt", roundTripped.Type)
+	assert.Equal(t, entry.Prompt, roundTripped.Prompt)
+	assert.Equal(t, entry.Model, roundTripped.Model)
+	assert.Equal(t, 30, roundTripped.Timeout)
 }
 
 func TestSettingsPath(t *testing.T) {

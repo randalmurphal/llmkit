@@ -2,8 +2,9 @@ package codexcontract
 
 // Codex CLI commands and flags used by this library.
 const (
-	CommandExec   = "exec"
-	CommandResume = "resume"
+	CommandExec      = "exec"
+	CommandResume    = "resume"
+	CommandAppServer = "app-server"
 
 	FlagJSON                              = "--json"
 	FlagModel                             = "--model"

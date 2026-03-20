@@ -604,9 +604,19 @@ func TestAllHookEventTypes(t *testing.T) {
 		HookSubagentStart,
 		HookSubagentStop,
 		HookStop,
+		HookStopFailure,
 		HookPreCompact,
+		HookPostCompact,
 		HookSessionEnd,
 		HookNotification,
+		HookTeammateIdle,
+		HookTaskCompleted,
+		HookInstructionsLoaded,
+		HookConfigChange,
+		HookWorktreeCreate,
+		HookWorktreeRemove,
+		HookElicitation,
+		HookElicitationResult,
 	}
 
 	if len(hookEvents) != len(expectedHooks) {

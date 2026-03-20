@@ -41,6 +41,10 @@ type CompletionRequest struct {
 	// ConfigOverrides are applied as repeated -c key=value flags for this request.
 	// Request-level overrides take precedence over client-level overrides.
 	ConfigOverrides map[string]any `json:"config_overrides,omitempty"`
+
+	// OnEvent is called synchronously for each streaming chunk during execution.
+	// Use to capture events in real-time.
+	OnEvent func(StreamChunk) `json:"-"`
 }
 
 // Message is a conversation turn.
