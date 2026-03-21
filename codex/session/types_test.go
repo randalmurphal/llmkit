@@ -214,7 +214,7 @@ func TestNormalizeEventType(t *testing.T) {
 // =============================================================================
 
 func TestParseJSONRPCLine_Response(t *testing.T) {
-	input := []byte(`{"jsonrpc":"2.0","id":1,"result":{"threadId":"t-1"}}`)
+	input := []byte(`{"jsonrpc":"2.0","id":1,"result":{"thread":{"id":"t-1"},"model":"gpt-5","cwd":"/tmp"}}`)
 
 	resp, isResp := parseJSONRPCLine(input)
 	if !isResp {
@@ -234,8 +234,8 @@ func TestParseJSONRPCLine_Response(t *testing.T) {
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
 		t.Fatalf("failed to parse result: %v", err)
 	}
-	if result.ThreadID != "t-1" {
-		t.Errorf("expected threadId 't-1', got %q", result.ThreadID)
+	if result.Thread.ID != "t-1" {
+		t.Errorf("expected thread.id 't-1', got %q", result.Thread.ID)
 	}
 }
 

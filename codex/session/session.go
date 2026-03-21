@@ -218,7 +218,12 @@ func (s *session) initializeHandshake(ctx context.Context) error {
 		return fmt.Errorf("parse %s result: %w", method, err)
 	}
 
-	s.id = result.ThreadID
+	threadID := result.Thread.ID
+	if threadID == "" {
+		return fmt.Errorf("%s returned empty thread ID (raw: %s)", method, string(resp.Result))
+	}
+
+	s.id = threadID
 	close(s.initDone)
 	return nil
 }

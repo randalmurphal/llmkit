@@ -97,8 +97,14 @@ type ThreadResumeParams struct {
 }
 
 // ThreadStartResult is the result of a thread/start or thread/resume call.
+// The actual response nests the thread ID inside a "thread" object:
+// {"thread":{"id":"..."},"model":"...","cwd":"...",...}
 type ThreadStartResult struct {
-	ThreadID string `json:"threadId"`
+	Thread struct {
+		ID string `json:"id"`
+	} `json:"thread"`
+	Model    string `json:"model,omitempty"`
+	CWD      string `json:"cwd,omitempty"`
 }
 
 // InputItem represents a content item in a turn/start or turn/steer request.
