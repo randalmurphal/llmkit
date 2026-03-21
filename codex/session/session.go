@@ -83,6 +83,9 @@ type session struct {
 	lastActivity atomic.Value // time.Time
 	turnCount    atomic.Int32
 
+	// System prompt prepended to first Send if configured.
+	systemPromptPending bool
+
 	// Lifecycle
 	initDone chan struct{} // Closed when thread handshake completes
 	done     chan struct{} // Closed when readOutput exits
@@ -98,12 +101,13 @@ func newSession(ctx context.Context, opts ...SessionOption) (*session, error) {
 	}
 
 	s := &session{
-		config:    cfg,
-		pending:   make(map[int64]chan *JSONRPCResponse),
-		outputCh:  make(chan OutputMessage, 100),
-		initDone:  make(chan struct{}),
-		done:      make(chan struct{}),
-		createdAt: time.Now(),
+		config:              cfg,
+		pending:             make(map[int64]chan *JSONRPCResponse),
+		outputCh:            make(chan OutputMessage, 100),
+		initDone:            make(chan struct{}),
+		done:                make(chan struct{}),
+		createdAt:           time.Now(),
+		systemPromptPending: cfg.systemPrompt != "",
 	}
 	s.status.Store(StatusCreating)
 	s.lastActivity.Store(time.Now())
@@ -202,22 +206,20 @@ func (s *session) threadHandshake(ctx context.Context) error {
 }
 
 // buildArgs constructs CLI arguments for app-server mode.
+// Unlike `codex exec`, app-server only accepts --config/-c, --enable, --disable,
+// and --listen. Model, sandbox, and approval settings must go through -c overrides.
+// System prompt is NOT passed here — it's prepended to the first Send() call.
 func (s *session) buildArgs() []string {
 	args := []string{codexcontract.CommandAppServer}
 
+	// Model goes through config override, not --model flag.
 	if s.config.model != "" {
-		args = append(args, codexcontract.FlagModel, s.config.model)
+		args = append(args, codexcontract.FlagConfig, fmt.Sprintf("model=%q", s.config.model))
 	}
 
+	// Full-auto maps to sandbox + approval config overrides.
 	if s.config.fullAuto {
-		args = append(args, codexcontract.FlagFullAuto)
-	} else {
-		if s.config.sandboxMode != "" {
-			args = append(args, codexcontract.FlagSandbox, s.config.sandboxMode)
-		}
-		if s.config.approvalMode != "" {
-			args = append(args, codexcontract.FlagAskForApproval, s.config.approvalMode)
-		}
+		args = append(args, codexcontract.FlagConfig, `approval_policy="auto-edit"`)
 	}
 
 	for _, feature := range s.config.enabledFeatures {
@@ -456,10 +458,17 @@ func (s *session) Send(ctx context.Context, msg UserMessage) error {
 		return fmt.Errorf("session not active: %s", s.Status())
 	}
 
+	// Prepend system prompt to the first message if configured.
+	content := msg.Content
+	if s.systemPromptPending {
+		content = s.config.systemPrompt + "\n\n" + content
+		s.systemPromptPending = false
+	}
+
 	params := TurnStartParams{
 		ThreadID: s.id,
 		Input: []InputItem{
-			{Type: "text", Text: msg.Content},
+			{Type: "text", Text: content},
 		},
 	}
 
