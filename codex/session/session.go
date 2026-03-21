@@ -246,7 +246,7 @@ func (s *session) buildThreadStartParams() ThreadStartParams {
 
 	if s.config.fullAuto {
 		params.ApprovalPolicy = "never"
-		params.Sandbox = "workspace-write"
+		params.Sandbox = "danger-full-access"
 	} else {
 		if s.config.approvalMode != "" {
 			params.ApprovalPolicy = s.config.approvalMode
@@ -625,37 +625,50 @@ func (s *session) Close() error {
 
 	s.status.Store(StatusClosing)
 
-	// Send a shutdown JSON-RPC request (best effort).
-	s.sendShutdown()
-
-	// Close stdin to signal EOF.
+	// Close stdin to signal EOF. The app-server should exit on its own
+	// when stdin closes. (The "shutdown" JSON-RPC method is not supported
+	// by the app-server, so we skip it.)
 	if s.stdin != nil {
 		_ = s.stdin.Close()
 	}
 
-	// Wait for readOutput to finish (process exits after receiving shutdown + EOF).
+	// Wait briefly for the process to exit gracefully.
 	select {
 	case <-s.done:
-		// readOutput() finished, process has exited.
-	case <-time.After(5 * time.Second):
-		// Graceful shutdown timed out, force kill via context.
-		if s.cancel != nil {
-			s.cancel()
-		}
-		select {
-		case <-s.done:
-			// Process killed successfully.
-		case <-time.After(2 * time.Second):
-			// Still not dead, kill entire process group as last resort.
-			if s.cmd != nil && s.cmd.Process != nil {
-				_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
-			}
-			select {
-			case <-s.done:
-			case <-time.After(1 * time.Second):
-				s.setCloseError(fmt.Errorf("process did not exit after kill"))
-			}
-		}
+		s.status.Store(StatusClosed)
+		return s.closeErr
+	case <-time.After(3 * time.Second):
+	}
+
+	// Graceful exit timed out. Kill the entire process group (negative PID)
+	// so that both the node wrapper and the native codex binary are killed.
+	// Do this BEFORE cancelling the context, because context cancellation
+	// only kills the direct child (node) and can orphan the native binary.
+	if s.cmd != nil && s.cmd.Process != nil {
+		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGTERM)
+	}
+
+	select {
+	case <-s.done:
+		s.status.Store(StatusClosed)
+		return s.closeErr
+	case <-time.After(2 * time.Second):
+	}
+
+	// SIGTERM didn't work. SIGKILL the process group.
+	if s.cmd != nil && s.cmd.Process != nil {
+		_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+	}
+
+	// Cancel the context as a final fallback.
+	if s.cancel != nil {
+		s.cancel()
+	}
+
+	select {
+	case <-s.done:
+	case <-time.After(1 * time.Second):
+		s.setCloseError(fmt.Errorf("process did not exit after kill"))
 	}
 
 	s.status.Store(StatusClosed)

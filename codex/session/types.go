@@ -131,8 +131,15 @@ type TurnSteerParams struct {
 // OutputMessage represents a notification received from the Codex app-server.
 // Use the Is*() methods to determine the notification type, and GetText() to
 // extract text content.
+//
+// The app-server uses two content delivery patterns:
+//   - Streaming deltas: item/agentMessage/delta with text in params.delta
+//   - Completed items: item/completed with text in params.item.text
+//
+// Both are normalized so that GetText() returns the text content regardless
+// of which pattern delivered it.
 type OutputMessage struct {
-	// Type is the notification event type (e.g., "thread.started", "item.updated").
+	// Type is the notification event type (e.g., "turn.started", "item.agentMessage.delta").
 	Type string `json:"type"`
 
 	// ThreadID is the thread this notification belongs to.
@@ -144,11 +151,15 @@ type OutputMessage struct {
 	// ItemID is the item this notification belongs to (for item.* events).
 	ItemID string `json:"itemId,omitempty"`
 
-	// ItemType is the kind of item (e.g., "agent_message", "reasoning").
+	// ItemType is the kind of item (e.g., "agentMessage", "reasoning").
+	// The app-server uses camelCase; IsAgentMessage() accepts both formats.
 	ItemType string `json:"itemType,omitempty"`
 
-	// Content holds text content for item updates.
+	// Content holds text content for item updates and completed items.
 	Content string `json:"content,omitempty"`
+
+	// Delta holds streaming text chunks from item/agentMessage/delta notifications.
+	Delta string `json:"delta,omitempty"`
 
 	// Done is true when the turn or item has completed.
 	Done bool `json:"done,omitempty"`
@@ -201,8 +212,17 @@ func (m *OutputMessage) IsError() bool {
 }
 
 // IsAgentMessage returns true if this is an agent_message item.
+// Accepts both snake_case ("agent_message" from codex exec) and
+// camelCase ("agentMessage" from app-server).
 func (m *OutputMessage) IsAgentMessage() bool {
-	return m.ItemType == codexcontract.ItemAgentMessage
+	return m.ItemType == codexcontract.ItemAgentMessage ||
+		m.ItemType == codexcontract.ItemAgentMessageCamel
+}
+
+// IsAgentMessageDelta returns true if this is a streaming text chunk
+// from an agent message (item/agentMessage/delta notification).
+func (m *OutputMessage) IsAgentMessageDelta() bool {
+	return m.Type == codexcontract.EventAgentMessageDelta
 }
 
 // IsReasoning returns true if this is a reasoning item.
@@ -211,9 +231,11 @@ func (m *OutputMessage) IsReasoning() bool {
 }
 
 // GetText returns the text content of the message.
-// For item updates, returns the content field.
-// For errors, returns the error field.
+// Checks Delta (streaming chunks), Content (completed items), and Error fields.
 func (m *OutputMessage) GetText() string {
+	if m.Delta != "" {
+		return m.Delta
+	}
 	if m.Content != "" {
 		return m.Content
 	}
@@ -279,10 +301,9 @@ func ParseOutputMessage(data []byte) (*OutputMessage, error) {
 			// Restore the type from the method (params may not have a "type" field).
 			msg.Type = eventType
 
-			// Extract turn ID from nested turn object for turn.started and
-			// turn.completed notifications. The app-server sends these as
-			// params.turn.id rather than params.turnId.
-			extractNestedTurnID(notification.Params, msg)
+			// Extract nested fields that the app-server places inside
+			// sub-objects rather than at the params level.
+			extractNestedFields(notification.Params, msg)
 		}
 		msg.Raw = data
 		return msg, nil
@@ -313,20 +334,48 @@ func normalizeEventType(method string) string {
 	return strings.ReplaceAll(method, "/", ".")
 }
 
-// extractNestedTurnID populates msg.TurnID from params.turn.id when the
-// notification carries a nested Turn object (turn/started, turn/completed).
-func extractNestedTurnID(params json.RawMessage, msg *OutputMessage) {
-	if msg.TurnID != "" {
-		return // Already populated from flat params.
-	}
-
+// extractNestedFields populates OutputMessage fields from nested objects
+// in app-server notifications. The app-server nests data that codex exec
+// puts at the top level:
+//   - params.turn.id → TurnID (for turn/started, turn/completed)
+//   - params.item.type → ItemType (for item/started, item/completed)
+//   - params.item.text → Content (for item/completed with final text)
+//   - params.item.id → ItemID (for item/started, item/completed)
+func extractNestedFields(params json.RawMessage, msg *OutputMessage) {
 	var nested struct {
 		Turn struct {
 			ID string `json:"id"`
 		} `json:"turn"`
+		Item struct {
+			ID   string `json:"id"`
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"item"`
 	}
-	if err := json.Unmarshal(params, &nested); err == nil && nested.Turn.ID != "" {
+	if err := json.Unmarshal(params, &nested); err != nil {
+		return
+	}
+
+	// Extract turn ID from nested turn object.
+	if msg.TurnID == "" && nested.Turn.ID != "" {
 		msg.TurnID = nested.Turn.ID
+	}
+
+	// Extract item type from nested item object.
+	// The app-server uses camelCase (e.g., "agentMessage").
+	if msg.ItemType == "" && nested.Item.Type != "" {
+		msg.ItemType = nested.Item.Type
+	}
+
+	// Extract item ID from nested item object.
+	if msg.ItemID == "" && nested.Item.ID != "" {
+		msg.ItemID = nested.Item.ID
+	}
+
+	// Extract final text from completed items.
+	// For item/completed, the full text is at params.item.text.
+	if msg.Content == "" && nested.Item.Text != "" {
+		msg.Content = nested.Item.Text
 	}
 }
 

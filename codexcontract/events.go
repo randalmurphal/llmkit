@@ -25,8 +25,18 @@ const (
 	EventResult    = "result"
 )
 
-// Item types we can interpret in headless mode.
+// App-server streaming event types. These use slash-delimited method names
+// that get normalized to dot-delimited by ParseOutputMessage.
 const (
-	ItemAgentMessage = "agent_message"
-	ItemReasoning    = "reasoning"
+	EventAgentMessageDelta = "item.agentMessage.delta"
+	EventReasoningDelta    = "item.reasoning.delta"
+)
+
+// Item types we can interpret in headless mode.
+// The app-server uses camelCase ("agentMessage"), while codex exec --json
+// uses snake_case ("agent_message"). Both are accepted.
+const (
+	ItemAgentMessage      = "agent_message"
+	ItemAgentMessageCamel = "agentMessage"
+	ItemReasoning         = "reasoning"
 )
