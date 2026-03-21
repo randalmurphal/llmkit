@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/randalmurphal/llmkit/codexcontract"
@@ -21,6 +22,7 @@ const (
 
 // JSON-RPC 2.0 method constants for the Codex app-server protocol.
 const (
+	MethodInitialize   = "initialize"
 	MethodThreadStart  = "thread/start"
 	MethodThreadResume = "thread/resume"
 	MethodTurnStart    = "turn/start"
@@ -67,8 +69,27 @@ func (e *JSONRPCError) Error() string {
 	return e.Message
 }
 
+// InitializeParams are the parameters for the initialize handshake.
+type InitializeParams struct {
+	ClientInfo ClientInfo `json:"clientInfo"`
+}
+
+// ClientInfo identifies the client to the app-server during initialization.
+type ClientInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
 // ThreadStartParams are the parameters for thread/start.
-type ThreadStartParams struct{}
+// All fields are optional and control thread-level configuration.
+type ThreadStartParams struct {
+	Model            string `json:"model,omitempty"`
+	CWD              string `json:"cwd,omitempty"`
+	ApprovalPolicy   string `json:"approvalPolicy,omitempty"`
+	Sandbox          string `json:"sandbox,omitempty"`
+	BaseInstructions string `json:"baseInstructions,omitempty"`
+	Ephemeral        bool   `json:"ephemeral,omitempty"`
+}
 
 // ThreadResumeParams are the parameters for thread/resume.
 type ThreadResumeParams struct {
@@ -94,10 +115,11 @@ type TurnStartParams struct {
 
 // TurnSteerParams are the parameters for turn/steer.
 // This injects input into an actively running turn.
+// ExpectedTurnID is required by the protocol to prevent races.
 type TurnSteerParams struct {
 	ThreadID       string      `json:"threadId"`
 	Input          []InputItem `json:"input"`
-	ExpectedTurnID string      `json:"expectedTurnId,omitempty"`
+	ExpectedTurnID string      `json:"expectedTurnId"`
 }
 
 // OutputMessage represents a notification received from the Codex app-server.
@@ -221,6 +243,11 @@ func NewUserMessage(content string) UserMessage {
 // an OutputMessage. The incoming data should be a JSON-RPC notification with a
 // method field corresponding to a Codex event type and a params object containing
 // event-specific fields.
+//
+// The app-server uses slash-delimited method names (e.g., "turn/started") while
+// codexcontract constants use dot-delimited names (e.g., "turn.started") from the
+// codex exec --json format. This function normalizes slash to dot so that the
+// Is*() methods work with both protocols.
 func ParseOutputMessage(data []byte) (*OutputMessage, error) {
 	// First try to parse as a JSON-RPC notification envelope.
 	var notification JSONRPCNotification
@@ -230,8 +257,12 @@ func ParseOutputMessage(data []byte) (*OutputMessage, error) {
 
 	// If it has a method field, it's a JSON-RPC notification - extract the params.
 	if notification.Method != "" {
+		// Normalize slash-delimited app-server methods to dot-delimited event types
+		// used by codexcontract constants (e.g., "turn/started" -> "turn.started").
+		eventType := normalizeEventType(notification.Method)
+
 		msg := &OutputMessage{
-			Type: notification.Method,
+			Type: eventType,
 			Raw:  data,
 		}
 		// Parse params into the message fields if present.
@@ -240,7 +271,12 @@ func ParseOutputMessage(data []byte) (*OutputMessage, error) {
 				return nil, err
 			}
 			// Restore the type from the method (params may not have a "type" field).
-			msg.Type = notification.Method
+			msg.Type = eventType
+
+			// Extract turn ID from nested turn object for turn.started and
+			// turn.completed notifications. The app-server sends these as
+			// params.turn.id rather than params.turnId.
+			extractNestedTurnID(notification.Params, msg)
 		}
 		msg.Raw = data
 		return msg, nil
@@ -253,13 +289,39 @@ func ParseOutputMessage(data []byte) (*OutputMessage, error) {
 	}
 	msg.Raw = data
 
-	// If the type contains a slash or dot, it's a known event format.
+	// Normalize event type if present.
+	msg.Type = normalizeEventType(msg.Type)
+
 	// If it's empty, try to infer from presence of error field.
 	if msg.Type == "" && msg.Error != "" {
 		msg.Type = codexcontract.EventError
 	}
 
 	return &msg, nil
+}
+
+// normalizeEventType converts slash-delimited app-server notification methods
+// (e.g., "turn/started") to dot-delimited event types (e.g., "turn.started")
+// used by codexcontract constants. Already dot-delimited types pass through unchanged.
+func normalizeEventType(method string) string {
+	return strings.ReplaceAll(method, "/", ".")
+}
+
+// extractNestedTurnID populates msg.TurnID from params.turn.id when the
+// notification carries a nested Turn object (turn/started, turn/completed).
+func extractNestedTurnID(params json.RawMessage, msg *OutputMessage) {
+	if msg.TurnID != "" {
+		return // Already populated from flat params.
+	}
+
+	var nested struct {
+		Turn struct {
+			ID string `json:"id"`
+		} `json:"turn"`
+	}
+	if err := json.Unmarshal(params, &nested); err == nil && nested.Turn.ID != "" {
+		msg.TurnID = nested.Turn.ID
+	}
 }
 
 // parseJSONRPCLine classifies a line from stdout as either a JSON-RPC response

@@ -83,8 +83,9 @@ type session struct {
 	lastActivity atomic.Value // time.Time
 	turnCount    atomic.Int32
 
-	// System prompt prepended to first Send if configured.
-	systemPromptPending bool
+	// Active turn tracking for turn/steer support.
+	// Updated by readOutput when it sees turn.started/turn.completed notifications.
+	activeTurnID atomic.Value // string (empty string means no active turn)
 
 	// Lifecycle
 	initDone chan struct{} // Closed when thread handshake completes
@@ -101,16 +102,16 @@ func newSession(ctx context.Context, opts ...SessionOption) (*session, error) {
 	}
 
 	s := &session{
-		config:              cfg,
-		pending:             make(map[int64]chan *JSONRPCResponse),
-		outputCh:            make(chan OutputMessage, 100),
-		initDone:            make(chan struct{}),
-		done:                make(chan struct{}),
-		createdAt:           time.Now(),
-		systemPromptPending: cfg.systemPrompt != "",
+		config:   cfg,
+		pending:  make(map[int64]chan *JSONRPCResponse),
+		outputCh: make(chan OutputMessage, 100),
+		initDone: make(chan struct{}),
+		done:     make(chan struct{}),
+		createdAt: time.Now(),
 	}
 	s.status.Store(StatusCreating)
 	s.lastActivity.Store(time.Now())
+	s.activeTurnID.Store("")
 
 	if err := s.start(ctx); err != nil {
 		return nil, err
@@ -120,7 +121,7 @@ func newSession(ctx context.Context, opts ...SessionOption) (*session, error) {
 }
 
 // start spawns the Codex app-server process, begins output processing,
-// and performs the thread/start (or thread/resume) handshake.
+// and performs the initialize + thread/start handshake.
 func (s *session) start(ctx context.Context) error {
 	// Create cancellable context for process lifetime.
 	procCtx, cancel := context.WithCancel(context.Background())
@@ -159,22 +160,40 @@ func (s *session) start(ctx context.Context) error {
 	// Start output reader goroutine.
 	go s.readOutput()
 
-	// Perform the thread handshake with a timeout.
+	// Perform the two-step handshake with a timeout.
 	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, s.config.startupTimeout)
 	defer handshakeCancel()
 
-	if err := s.threadHandshake(handshakeCtx); err != nil {
+	if err := s.initializeHandshake(handshakeCtx); err != nil {
 		_ = s.Close()
-		return fmt.Errorf("thread handshake: %w", err)
+		return fmt.Errorf("handshake: %w", err)
 	}
 
 	s.status.Store(StatusActive)
 	return nil
 }
 
-// threadHandshake sends thread/start or thread/resume and waits for the
-// response containing the thread ID.
-func (s *session) threadHandshake(ctx context.Context) error {
+// initializeHandshake performs the required two-step protocol handshake:
+// 1. initialize — exchanges client/server capabilities
+// 2. thread/start or thread/resume — creates or resumes a thread with config
+func (s *session) initializeHandshake(ctx context.Context) error {
+	// Step 1: Initialize — must complete before any other method.
+	initParams := InitializeParams{
+		ClientInfo: ClientInfo{
+			Name:    "llmkit",
+			Version: "1.9.2",
+		},
+	}
+
+	initResp, err := s.sendRequest(ctx, MethodInitialize, initParams)
+	if err != nil {
+		return fmt.Errorf("send initialize: %w", err)
+	}
+	if initResp.Error != nil {
+		return fmt.Errorf("initialize error: %s", initResp.Error.Message)
+	}
+
+	// Step 2: thread/start or thread/resume with configuration.
 	var method string
 	var params any
 
@@ -183,14 +202,13 @@ func (s *session) threadHandshake(ctx context.Context) error {
 		params = ThreadResumeParams{ThreadID: s.config.threadID}
 	} else {
 		method = MethodThreadStart
-		params = ThreadStartParams{}
+		params = s.buildThreadStartParams()
 	}
 
 	resp, err := s.sendRequest(ctx, method, params)
 	if err != nil {
 		return fmt.Errorf("send %s: %w", method, err)
 	}
-
 	if resp.Error != nil {
 		return fmt.Errorf("%s error: %s", method, resp.Error.Message)
 	}
@@ -205,22 +223,43 @@ func (s *session) threadHandshake(ctx context.Context) error {
 	return nil
 }
 
+// buildThreadStartParams constructs the thread/start params from session config.
+// Model, working directory, system prompt, approval policy, and sandbox mode are
+// all passed through thread/start params — NOT as CLI flags.
+func (s *session) buildThreadStartParams() ThreadStartParams {
+	params := ThreadStartParams{}
+
+	if s.config.model != "" {
+		params.Model = s.config.model
+	}
+	if s.config.workdir != "" {
+		params.CWD = s.config.workdir
+	}
+	if s.config.systemPrompt != "" {
+		params.BaseInstructions = s.config.systemPrompt
+	}
+
+	if s.config.fullAuto {
+		params.ApprovalPolicy = "never"
+		params.Sandbox = "workspace-write"
+	} else {
+		if s.config.approvalMode != "" {
+			params.ApprovalPolicy = s.config.approvalMode
+		}
+		if s.config.sandboxMode != "" {
+			params.Sandbox = s.config.sandboxMode
+		}
+	}
+
+	return params
+}
+
 // buildArgs constructs CLI arguments for app-server mode.
-// Unlike `codex exec`, app-server only accepts --config/-c, --enable, --disable,
-// and --listen. Model, sandbox, and approval settings must go through -c overrides.
-// System prompt is NOT passed here — it's prepended to the first Send() call.
+// App-server only accepts --config/-c, --enable, --disable, and --listen.
+// Model, sandbox, approval, and system prompt go through the thread/start
+// JSON-RPC params, not CLI flags.
 func (s *session) buildArgs() []string {
 	args := []string{codexcontract.CommandAppServer}
-
-	// Model goes through config override, not --model flag.
-	if s.config.model != "" {
-		args = append(args, codexcontract.FlagConfig, fmt.Sprintf("model=%q", s.config.model))
-	}
-
-	// Full-auto maps to approval config override.
-	if s.config.fullAuto {
-		args = append(args, codexcontract.FlagConfig, `approval_policy="never"`)
-	}
 
 	for _, feature := range s.config.enabledFeatures {
 		args = append(args, codexcontract.FlagEnable, feature)
@@ -424,7 +463,12 @@ func (s *session) failPendingRequests() {
 func (s *session) updateFromMessage(msg *OutputMessage) {
 	s.lastActivity.Store(time.Now())
 
+	if msg.IsTurnStarted() && msg.TurnID != "" {
+		s.activeTurnID.Store(msg.TurnID)
+	}
+
 	if msg.IsTurnComplete() || msg.IsTurnFailed() {
+		s.activeTurnID.Store("")
 		s.turnCount.Add(1)
 	}
 }
@@ -458,17 +502,10 @@ func (s *session) Send(ctx context.Context, msg UserMessage) error {
 		return fmt.Errorf("session not active: %s", s.Status())
 	}
 
-	// Prepend system prompt to the first message if configured.
-	content := msg.Content
-	if s.systemPromptPending {
-		content = s.config.systemPrompt + "\n\n" + content
-		s.systemPromptPending = false
-	}
-
 	params := TurnStartParams{
 		ThreadID: s.id,
 		Input: []InputItem{
-			{Type: "text", Text: content},
+			{Type: "text", Text: msg.Content},
 		},
 	}
 
@@ -512,13 +549,20 @@ func (s *session) Send(ctx context.Context, msg UserMessage) error {
 }
 
 // Steer implements Session. It injects input into an actively running turn.
+// Returns an error if there is no active turn, since expectedTurnId is required.
 func (s *session) Steer(ctx context.Context, msg UserMessage) error {
 	if s.Status() != StatusActive {
 		return fmt.Errorf("session not active: %s", s.Status())
 	}
 
+	turnID := s.activeTurnID.Load().(string)
+	if turnID == "" {
+		return fmt.Errorf("no active turn to steer")
+	}
+
 	params := TurnSteerParams{
-		ThreadID: s.id,
+		ThreadID:       s.id,
+		ExpectedTurnID: turnID,
 		Input: []InputItem{
 			{Type: "text", Text: msg.Content},
 		},

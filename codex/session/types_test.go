@@ -112,6 +112,104 @@ func TestParseOutputMessage_EmptyParams(t *testing.T) {
 }
 
 // =============================================================================
+// Slash-to-dot normalization Tests
+// =============================================================================
+
+func TestParseOutputMessage_SlashDelimitedMethod(t *testing.T) {
+	// App-server sends slash-delimited methods; they should be normalized to dots.
+	input := []byte(`{"jsonrpc":"2.0","method":"item/updated","params":{"threadId":"t-1","turnId":"turn-1","itemId":"item-1","itemType":"agent_message","content":"Hello!"}}`)
+
+	msg, err := ParseOutputMessage(input)
+	if err != nil {
+		t.Fatalf("ParseOutputMessage failed: %v", err)
+	}
+
+	if msg.Type != codexcontract.EventItemUpdated {
+		t.Errorf("expected type %q, got %q", codexcontract.EventItemUpdated, msg.Type)
+	}
+	if msg.ThreadID != "t-1" {
+		t.Errorf("expected threadId 't-1', got %q", msg.ThreadID)
+	}
+	if msg.Content != "Hello!" {
+		t.Errorf("expected content 'Hello!', got %q", msg.Content)
+	}
+}
+
+func TestParseOutputMessage_TurnStartedWithNestedTurnID(t *testing.T) {
+	// turn/started carries the turn ID nested inside params.turn.id, not params.turnId.
+	input := []byte(`{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"t-1","turn":{"id":"turn-abc","items":[],"status":"running"}}}`)
+
+	msg, err := ParseOutputMessage(input)
+	if err != nil {
+		t.Fatalf("ParseOutputMessage failed: %v", err)
+	}
+
+	if msg.Type != codexcontract.EventTurnStarted {
+		t.Errorf("expected type %q, got %q", codexcontract.EventTurnStarted, msg.Type)
+	}
+	if msg.TurnID != "turn-abc" {
+		t.Errorf("expected turnId 'turn-abc', got %q", msg.TurnID)
+	}
+	if msg.ThreadID != "t-1" {
+		t.Errorf("expected threadId 't-1', got %q", msg.ThreadID)
+	}
+}
+
+func TestParseOutputMessage_TurnCompletedWithNestedTurnID(t *testing.T) {
+	// turn/completed also carries a nested Turn object.
+	input := []byte(`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"t-2","turn":{"id":"turn-xyz","items":[],"status":"completed"}}}`)
+
+	msg, err := ParseOutputMessage(input)
+	if err != nil {
+		t.Fatalf("ParseOutputMessage failed: %v", err)
+	}
+
+	if msg.Type != codexcontract.EventTurnCompleted {
+		t.Errorf("expected type %q, got %q", codexcontract.EventTurnCompleted, msg.Type)
+	}
+	if msg.TurnID != "turn-xyz" {
+		t.Errorf("expected turnId 'turn-xyz', got %q", msg.TurnID)
+	}
+}
+
+func TestParseOutputMessage_FlatTurnIDTakesPriority(t *testing.T) {
+	// If both flat turnId and nested turn.id exist, flat takes priority (it's parsed first).
+	input := []byte(`{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"t-1","turnId":"flat-id","turn":{"id":"nested-id","items":[],"status":"running"}}}`)
+
+	msg, err := ParseOutputMessage(input)
+	if err != nil {
+		t.Fatalf("ParseOutputMessage failed: %v", err)
+	}
+
+	if msg.TurnID != "flat-id" {
+		t.Errorf("expected flat turnId to take priority, got %q", msg.TurnID)
+	}
+}
+
+func TestNormalizeEventType(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"turn/started", "turn.started"},
+		{"turn/completed", "turn.completed"},
+		{"item/updated", "item.updated"},
+		{"thread/started", "thread.started"},
+		{"turn/diff/updated", "turn.diff.updated"},
+		{"turn.started", "turn.started"},   // Already dotted
+		{"error", "error"},                 // No separator
+		{"", ""},                           // Empty
+	}
+
+	for _, tt := range tests {
+		got := normalizeEventType(tt.input)
+		if got != tt.want {
+			t.Errorf("normalizeEventType(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+// =============================================================================
 // parseJSONRPCLine Tests
 // =============================================================================
 
