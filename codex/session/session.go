@@ -217,9 +217,9 @@ func (s *session) buildArgs() []string {
 		args = append(args, codexcontract.FlagConfig, fmt.Sprintf("model=%q", s.config.model))
 	}
 
-	// Full-auto maps to sandbox + approval config overrides.
+	// Full-auto maps to approval config override.
 	if s.config.fullAuto {
-		args = append(args, codexcontract.FlagConfig, `approval_policy="auto-edit"`)
+		args = append(args, codexcontract.FlagConfig, `approval_policy="never"`)
 	}
 
 	for _, feature := range s.config.enabledFeatures {
