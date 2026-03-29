@@ -28,6 +28,9 @@ type sessionConfig struct {
 	// System prompt
 	systemPrompt string
 
+	// Reasoning effort level
+	reasoningEffort string // "minimal", "low", "medium", "high", "xhigh"
+
 	// Feature flags
 	enabledFeatures  []string
 	disabledFeatures []string
@@ -99,6 +102,12 @@ func WithResume(threadID string) SessionOption {
 // WithSystemPrompt sets a custom system prompt.
 func WithSystemPrompt(prompt string) SessionOption {
 	return func(c *sessionConfig) { c.systemPrompt = prompt }
+}
+
+// WithReasoningEffort sets the model reasoning effort level via -c config
+// override. Valid values: "minimal", "low", "medium", "high", "xhigh".
+func WithReasoningEffort(effort string) SessionOption {
+	return func(c *sessionConfig) { c.reasoningEffort = effort }
 }
 
 // WithEnabledFeatures sets feature flags to enable (e.g., "codex_hooks").

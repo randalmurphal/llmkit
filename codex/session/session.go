@@ -273,6 +273,11 @@ func (s *session) buildArgs() []string {
 		args = append(args, codexcontract.FlagDisable, feature)
 	}
 
+	if s.config.reasoningEffort != "" {
+		args = append(args, codexcontract.FlagConfig,
+			`model_reasoning_effort="`+s.config.reasoningEffort+`"`)
+	}
+
 	return args
 }
 

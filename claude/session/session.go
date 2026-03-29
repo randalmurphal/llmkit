@@ -192,6 +192,9 @@ func (s *session) buildArgs() []string {
 	if s.config.fallbackModel != "" {
 		args = append(args, claudecontract.FlagFallbackModel, s.config.fallbackModel)
 	}
+	if s.config.effort != "" {
+		args = append(args, claudecontract.FlagEffort, s.config.effort)
+	}
 
 	// System prompt
 	if s.config.systemPrompt != "" {

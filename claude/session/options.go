@@ -13,6 +13,7 @@ type sessionConfig struct {
 	// Model configuration
 	model         string
 	fallbackModel string
+	effort        string // "low", "medium", "high", "max"
 
 	// Working directory
 	workdir string
@@ -79,6 +80,12 @@ func WithModel(model string) SessionOption {
 // WithFallbackModel sets a fallback model if primary is overloaded.
 func WithFallbackModel(model string) SessionOption {
 	return func(c *sessionConfig) { c.fallbackModel = model }
+}
+
+// WithEffort sets the reasoning effort level.
+// Valid values: "low", "medium", "high", "max".
+func WithEffort(level string) SessionOption {
+	return func(c *sessionConfig) { c.effort = level }
 }
 
 // WithWorkdir sets the working directory for the session.
