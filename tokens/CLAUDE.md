@@ -16,7 +16,7 @@ Token counting and budget management for LLM prompts.
 ### Token Counting
 
 ```go
-import "github.com/randalmurphal/llmkit/tokens"
+import "github.com/randalmurphal/llmkit/v2/tokens"
 
 // Default estimator (~4 chars/token)
 counter := tokens.NewEstimatingCounter()

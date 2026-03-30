@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/randalmurphal/llmkit/tokens"
+	"github.com/randalmurphal/llmkit/v2/tokens"
 )
 
 func TestNew(t *testing.T) {

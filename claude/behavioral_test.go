@@ -24,9 +24,9 @@ import (
 // These tests use API credits and should be run intentionally, not in CI.
 
 const (
-	testTimeout     = 2 * time.Minute
-	testMaxBudget   = "0.50" // USD limit for safety
-	testGoldenDir   = "testdata/behavioral"
+	testTimeout   = 2 * time.Minute
+	testMaxBudget = "0.50" // USD limit for safety
+	testGoldenDir = "testdata/behavioral"
 )
 
 // skipUnlessBehavioral skips the test unless TEST_BEHAVIORAL=1

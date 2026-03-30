@@ -306,6 +306,69 @@ func TestNewManager(t *testing.T) {
 	}
 }
 
+func TestManagerTracksPendingSessionUnderResolvedID(t *testing.T) {
+	mgr := &manager{
+		config:   defaultManagerConfig(),
+		sessions: make(map[string]*session),
+		aliases:  make(map[string]string),
+	}
+
+	s := &session{
+		outputCh:  make(chan OutputMessage, 1),
+		initDone:  make(chan struct{}),
+		done:      make(chan struct{}),
+		createdAt: time.Now(),
+	}
+	s.status.Store(StatusActive)
+	s.lastActivity.Store(time.Now())
+	s.totalCost.Store(0.0)
+
+	key := mgr.sessionKeyForCreate(s)
+	if key == "" || key == s.ID() {
+		t.Fatalf("expected pending session key, got %q", key)
+	}
+
+	mgr.sessions[key] = s
+
+	go mgr.trackSessionID(key, s)
+	go mgr.watchSession(key, s)
+
+	s.updateFromMessage(&OutputMessage{
+		Type:      "system",
+		Subtype:   "init",
+		SessionID: "session-123",
+		Init:      &InitMessage{SessionID: "session-123"},
+	})
+
+	deadline := time.Now().Add(time.Second)
+	for {
+		if got, ok := mgr.Get("session-123"); ok {
+			if got.ID() != "session-123" {
+				t.Fatalf("expected resolved session ID, got %q", got.ID())
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("manager did not expose resolved session ID")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if list := mgr.List(); len(list) != 1 || list[0] != "session-123" {
+		t.Fatalf("expected resolved session in list, got %#v", list)
+	}
+
+	if info, ok := mgr.Info("session-123"); !ok || info.ID != "session-123" {
+		t.Fatalf("expected resolved session info, got %+v, ok=%v", info, ok)
+	}
+
+	close(s.done)
+	time.Sleep(20 * time.Millisecond)
+	if _, ok := mgr.Get("session-123"); ok {
+		t.Fatal("expected closed session to be removed from manager")
+	}
+}
+
 func TestManager_Interface(t *testing.T) {
 	// Ensure mockSessionManager implements SessionManager
 	var _ SessionManager = (*mockSessionManager)(nil)

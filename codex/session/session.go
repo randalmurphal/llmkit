@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/randalmurphal/llmkit/codexcontract"
+	"github.com/randalmurphal/llmkit/v2/codexcontract"
 )
 
 // Session manages a long-running Codex app-server process with JSON-RPC 2.0 I/O.
@@ -102,11 +102,11 @@ func newSession(ctx context.Context, opts ...SessionOption) (*session, error) {
 	}
 
 	s := &session{
-		config:   cfg,
-		pending:  make(map[int64]chan *JSONRPCResponse),
-		outputCh: make(chan OutputMessage, 100),
-		initDone: make(chan struct{}),
-		done:     make(chan struct{}),
+		config:    cfg,
+		pending:   make(map[int64]chan *JSONRPCResponse),
+		outputCh:  make(chan OutputMessage, 100),
+		initDone:  make(chan struct{}),
+		done:      make(chan struct{}),
 		createdAt: time.Now(),
 	}
 	s.status.Store(StatusCreating)
@@ -271,6 +271,10 @@ func (s *session) buildArgs() []string {
 	}
 	for _, feature := range s.config.disabledFeatures {
 		args = append(args, codexcontract.FlagDisable, feature)
+	}
+	if s.config.reasoningEffort != "" {
+		args = append(args, codexcontract.FlagConfig,
+			`model_reasoning_effort="`+s.config.reasoningEffort+`"`)
 	}
 
 	if s.config.reasoningEffort != "" {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/randalmurphal/llmkit/claude/session"
+	"github.com/randalmurphal/llmkit/v2/claude/session"
 )
 
 // Sample JSONL content matching Claude Code's format

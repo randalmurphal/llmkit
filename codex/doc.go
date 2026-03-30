@@ -42,21 +42,17 @@
 // The session ID is passed through buildExecArgs which emits `exec resume <id>`.
 // Flags unsupported by `exec resume` are automatically filtered out.
 //
-// # Provider Interface
+// # Unified llmkit Interface
 //
-// The codex package registers itself with the provider registry:
+// The codex package registers itself with the llmkit registry:
 //
 //	import (
-//	    "github.com/randalmurphal/llmkit/provider"
-//	    _ "github.com/randalmurphal/llmkit/codex"
+//	    "github.com/randalmurphal/llmkit/v2"
+//	    _ "github.com/randalmurphal/llmkit/v2/codex"
 //	)
 //
-//	client, err := provider.New("codex", provider.Config{
+//	client, err := llmkit.New("codex", llmkit.Config{
+//	    Provider: "codex",
 //	    Model: "gpt-5-codex",
-//	    Options: map[string]any{
-//	        "sandbox": "workspace-write",
-//	        "ask_for_approval": "never",
-//	        "web_search": "cached",
-//	    },
 //	})
 package codex

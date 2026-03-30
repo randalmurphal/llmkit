@@ -22,7 +22,7 @@
 //
 // Both the claude/ and claudeconfig/ packages import from here:
 //
-//	import "github.com/randalmurphal/llmkit/claudecontract"
+//	import "github.com/randalmurphal/llmkit/v2/claudecontract"
 //
 //	// Use flag constants
 //	args := []string{claudecontract.FlagPrint, claudecontract.FlagOutputFormat, claudecontract.FormatStreamJSON}

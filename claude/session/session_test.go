@@ -49,6 +49,15 @@ func TestSessionOptions(t *testing.T) {
 			},
 		},
 		{
+			name: "WithEffort",
+			opt:  WithEffort("high"),
+			validate: func(t *testing.T, c *sessionConfig) {
+				if c.effort != "high" {
+					t.Errorf("expected 'high', got %q", c.effort)
+				}
+			},
+		},
+		{
 			name: "WithWorkdir",
 			opt:  WithWorkdir("/test/dir"),
 			validate: func(t *testing.T, c *sessionConfig) {
@@ -218,6 +227,7 @@ func TestSessionOptions(t *testing.T) {
 func TestSession_BuildArgs(t *testing.T) {
 	cfg := sessionConfig{
 		model:                      "sonnet",
+		effort:                     "high",
 		sessionID:                  "test-123",
 		systemPrompt:               "Be helpful",
 		allowedTools:               []string{"Read"},
@@ -239,6 +249,8 @@ func TestSession_BuildArgs(t *testing.T) {
 	// Check model
 	assertContains(t, args, "--model")
 	assertContains(t, args, "sonnet")
+	assertContains(t, args, "--effort")
+	assertContains(t, args, "high")
 
 	// Check session ID
 	assertContains(t, args, "--session-id")
@@ -269,6 +281,85 @@ func TestSession_BuildArgs_Resume(t *testing.T) {
 	assertContains(t, args, "--resume")
 	assertContains(t, args, "resume-123")
 	assertNotContains(t, args, "--session-id")
+}
+
+func TestSessionWaitForInitReturnsWhenInitArrives(t *testing.T) {
+	s := &session{
+		outputCh:  make(chan OutputMessage, 1),
+		initDone:  make(chan struct{}),
+		done:      make(chan struct{}),
+		createdAt: time.Now(),
+	}
+	s.status.Store(StatusActive)
+	s.lastActivity.Store(time.Now())
+	s.totalCost.Store(0.0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	waitErr := make(chan error, 1)
+	go func() {
+		waitErr <- s.WaitForInit(ctx)
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	s.updateFromMessage(&OutputMessage{
+		Type:      "system",
+		Subtype:   "init",
+		SessionID: "session-123",
+		Init:      &InitMessage{SessionID: "session-123", Model: "claude-sonnet-4-5-20250514"},
+	})
+
+	select {
+	case err := <-waitErr:
+		if err != nil {
+			t.Fatalf("WaitForInit returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WaitForInit did not return")
+	}
+
+	if got := s.ID(); got != "session-123" {
+		t.Fatalf("expected session ID to update, got %q", got)
+	}
+}
+
+func TestSessionWaitForInitReturnsErrorWhenClosedBeforeInit(t *testing.T) {
+	s := &session{
+		initDone: make(chan struct{}),
+		done:     make(chan struct{}),
+	}
+	close(s.done)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	if err := s.WaitForInit(ctx); err == nil {
+		t.Fatal("expected WaitForInit to fail when session closes before init")
+	}
+}
+
+func TestSessionJSONLPathUsesUpdatedSessionID(t *testing.T) {
+	s := &session{
+		config: sessionConfig{
+			workdir: "/tmp/project",
+			homeDir: "/tmp/home",
+		},
+		initDone: make(chan struct{}),
+		done:     make(chan struct{}),
+	}
+	s.updateFromMessage(&OutputMessage{
+		Type:      "system",
+		Subtype:   "init",
+		SessionID: "session-abc",
+		Init:      &InitMessage{SessionID: "session-abc"},
+	})
+
+	got := s.JSONLPath()
+	want := "/tmp/home/.claude/projects/-tmp-project/session-abc.jsonl"
+	if got != want {
+		t.Fatalf("expected JSONLPath %q, got %q", want, got)
+	}
 }
 
 func TestMockSession_SendAndOutput(t *testing.T) {

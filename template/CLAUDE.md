@@ -37,7 +37,7 @@ Prompt template engine with Handlebars-like syntax and Go template power.
 ### Basic Rendering
 
 ```go
-import "github.com/randalmurphal/llmkit/template"
+import "github.com/randalmurphal/llmkit/v2/template"
 
 engine := template.NewEngine()
 result, err := engine.Render("Hello, {{name}}!", map[string]any{"name": "World"})

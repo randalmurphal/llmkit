@@ -254,8 +254,8 @@ type UserEventMessage struct {
 
 // ToolResultContent represents a tool result in the user message content.
 type ToolResultContent struct {
-	Type      string `json:"type"`        // "tool_result"
-	ToolUseID string `json:"tool_use_id"` // Matches the tool_use block's ID
+	Type      string `json:"type"`               // "tool_result"
+	ToolUseID string `json:"tool_use_id"`        // Matches the tool_use block's ID
 	IsError   bool   `json:"is_error,omitempty"` // True if tool execution failed
 
 	// ContentRaw holds the raw content field which can be:

@@ -1,7 +1,7 @@
 package codex
 
 import (
-	"github.com/randalmurphal/llmkit/codex/session"
+	"github.com/randalmurphal/llmkit/v2/codex/session"
 )
 
 // Session-related type aliases for convenience.
@@ -60,8 +60,8 @@ var (
 
 // Manager options re-exported for convenience.
 var (
-	CodexWithMaxSessions          = session.WithMaxSessions
-	CodexWithSessionTTL           = session.WithSessionTTL
-	CodexWithCleanupInterval      = session.WithCleanupInterval
+	CodexWithMaxSessions           = session.WithMaxSessions
+	CodexWithSessionTTL            = session.WithSessionTTL
+	CodexWithCleanupInterval       = session.WithCleanupInterval
 	CodexWithDefaultSessionOptions = session.WithDefaultSessionOptions
 )

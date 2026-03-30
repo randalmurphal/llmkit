@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/randalmurphal/llmkit/claudecontract"
+	"github.com/randalmurphal/llmkit/v2/claudecontract"
 )
 
 // MCPServer represents an MCP server configuration.

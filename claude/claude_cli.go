@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/randalmurphal/llmkit/claudecontract"
+	"github.com/randalmurphal/llmkit/v2/claudecontract"
 )
 
 // OutputFormat specifies the CLI output format.
@@ -810,7 +810,6 @@ func parseStreamEvent(data []byte) (*StreamEvent, error) {
 	return event, nil
 }
 
-
 // buildArgs constructs CLI arguments from a request using the client's configured format.
 func (c *ClaudeCLI) buildArgs(req CompletionRequest) []string {
 	return c.buildArgsWithFormat(req, c.outputFormat)
@@ -1232,7 +1231,6 @@ func sanitizeStderr(stderr string) string {
 	}
 	return strings.TrimSpace(stderr)
 }
-
 
 // Provider returns the provider name.
 // Implements provider.Client.

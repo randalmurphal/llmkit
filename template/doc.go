@@ -66,5 +66,5 @@
 //
 // This package is part of the llmkit library:
 //
-//	import "github.com/randalmurphal/llmkit/template"
+//	import "github.com/randalmurphal/llmkit/v2/template"
 package template

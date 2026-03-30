@@ -6,10 +6,11 @@ package claudecontract
 // Source: https://code.claude.com/docs/en/cli-reference
 //
 // Test coverage legend:
-//   [TESTED] - Has behavioral test in claude/behavioral_test.go
-//   [PARSING] - Tested via golden file parsing
-//   [MANUAL] - Requires manual testing (browser, web session, etc.)
-//   [UNTESTED] - No automated test coverage
+//
+//	[TESTED] - Has behavioral test in claude/behavioral_test.go
+//	[PARSING] - Tested via golden file parsing
+//	[MANUAL] - Requires manual testing (browser, web session, etc.)
+//	[UNTESTED] - No automated test coverage
 const (
 	// Core flags
 	FlagPrint        = "--print"         // -p, Run in non-interactive mode [TESTED]

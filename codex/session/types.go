@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/randalmurphal/llmkit/codexcontract"
+	"github.com/randalmurphal/llmkit/v2/codexcontract"
 )
 
 // SessionStatus represents the current state of a session.
@@ -35,19 +35,19 @@ const JSONRPCVersion = "2.0"
 
 // JSONRPCRequest is a JSON-RPC 2.0 request sent to the app-server.
 type JSONRPCRequest struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      int64       `json:"id"`
-	Method  string      `json:"method"`
-	Params  any         `json:"params,omitempty"`
+	JSONRPC string `json:"jsonrpc"`
+	ID      int64  `json:"id"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitempty"`
 }
 
 // JSONRPCResponse is a JSON-RPC 2.0 response from the app-server.
 // It contains either a result or an error, but not both.
 type JSONRPCResponse struct {
-	JSONRPC string           `json:"jsonrpc"`
-	ID      *int64           `json:"id"`
-	Result  json.RawMessage  `json:"result,omitempty"`
-	Error   *JSONRPCError    `json:"error,omitempty"`
+	JSONRPC string          `json:"jsonrpc"`
+	ID      *int64          `json:"id"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *JSONRPCError   `json:"error,omitempty"`
 }
 
 // JSONRPCNotification is a JSON-RPC 2.0 notification from the app-server.
@@ -103,8 +103,8 @@ type ThreadStartResult struct {
 	Thread struct {
 		ID string `json:"id"`
 	} `json:"thread"`
-	Model    string `json:"model,omitempty"`
-	CWD      string `json:"cwd,omitempty"`
+	Model string `json:"model,omitempty"`
+	CWD   string `json:"cwd,omitempty"`
 }
 
 // InputItem represents a content item in a turn/start or turn/steer request.

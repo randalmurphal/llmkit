@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/randalmurphal/llmkit/claudecontract"
+	"github.com/randalmurphal/llmkit/v2/claudecontract"
 )
 
 // Plugin represents a Claude Code plugin parsed from plugin.json.
@@ -84,22 +84,22 @@ type PluginCommand struct {
 // PluginMCPServer represents an MCP server provided by a plugin.
 // Parsed from .mcp.json in the plugin directory.
 type PluginMCPServer struct {
-	Name    string            `json:"name"`              // Server name (key in .mcp.json)
-	Command string            `json:"command"`           // Command to run
-	Args    []string          `json:"args,omitempty"`    // Command arguments
-	Env     map[string]string `json:"env,omitempty"`     // Environment variables
-	URL     string            `json:"url,omitempty"`     // URL for HTTP-based servers
-	Type    string            `json:"type,omitempty"`    // Server type (stdio, sse, http)
+	Name    string            `json:"name"`           // Server name (key in .mcp.json)
+	Command string            `json:"command"`        // Command to run
+	Args    []string          `json:"args,omitempty"` // Command arguments
+	Env     map[string]string `json:"env,omitempty"`  // Environment variables
+	URL     string            `json:"url,omitempty"`  // URL for HTTP-based servers
+	Type    string            `json:"type,omitempty"` // Server type (stdio, sse, http)
 }
 
 // PluginHook represents a hook provided by a plugin.
 // Parsed from hooks/hooks.json in the plugin directory.
 type PluginHook struct {
-	Event       string   `json:"event"`                 // Hook event (Stop, PreToolUse, etc.)
-	Type        string   `json:"type"`                  // Hook type (command)
-	Command     string   `json:"command"`               // Command to execute
-	Matcher     string   `json:"matcher,omitempty"`     // Tool matcher pattern
-	Description string   `json:"description,omitempty"` // Hook description
+	Event       string `json:"event"`                 // Hook event (Stop, PreToolUse, etc.)
+	Type        string `json:"type"`                  // Hook type (command)
+	Command     string `json:"command"`               // Command to execute
+	Matcher     string `json:"matcher,omitempty"`     // Tool matcher pattern
+	Description string `json:"description,omitempty"` // Hook description
 }
 
 // Info returns summary information for this plugin.

@@ -13,6 +13,12 @@ const (
 	// HookSessionStart fires when a session begins, resumes, or clears.
 	HookSessionStart HookEvent = "SessionStart"
 
+	// HookPreToolUse fires before a tool is executed.
+	HookPreToolUse HookEvent = "PreToolUse"
+
+	// HookPostToolUse fires after a tool returns.
+	HookPostToolUse HookEvent = "PostToolUse"
+
 	// HookUserPromptSubmit fires when the user submits a prompt.
 	HookUserPromptSubmit HookEvent = "UserPromptSubmit"
 
@@ -24,6 +30,8 @@ const (
 func ValidHookEvents() []HookEvent {
 	return []HookEvent{
 		HookSessionStart,
+		HookPreToolUse,
+		HookPostToolUse,
 		HookUserPromptSubmit,
 		HookStop,
 	}
@@ -77,37 +85,39 @@ type HookEntry struct {
 
 // SessionStartInput is the JSON passed to SessionStart hooks via stdin.
 type SessionStartInput struct {
-	SessionID      string `json:"session_id"`
-	TranscriptPath string `json:"transcript_path,omitempty"`
-	CWD            string `json:"cwd"`
-	HookEventName  string `json:"hook_event_name"`
-	Model          string `json:"model"`
-	PermissionMode string `json:"permission_mode"`
-	Source         SessionStartSource `json:"source"` // "startup", "resume", or "clear"
+	HookContext
+	Source SessionStartSource `json:"source"` // "startup", "resume", or "clear"
 }
 
 // UserPromptSubmitInput is the JSON passed to UserPromptSubmit hooks via stdin.
 type UserPromptSubmitInput struct {
-	SessionID      string `json:"session_id"`
-	TurnID         string `json:"turn_id"`
+	HookContext
+	Prompt string `json:"prompt"`
+}
+
+// HookContext is the shared hook stdin envelope for Codex hooks.
+type HookContext struct {
+	SessionID      string `json:"session_id,omitempty"`
+	TurnID         string `json:"turn_id,omitempty"`
 	TranscriptPath string `json:"transcript_path,omitempty"`
-	CWD            string `json:"cwd"`
-	HookEventName  string `json:"hook_event_name"`
-	Model          string `json:"model"`
-	PermissionMode string `json:"permission_mode"`
-	Prompt         string `json:"prompt"`
+	CWD            string `json:"cwd,omitempty"`
+	HookEventName  string `json:"hook_event_name,omitempty"`
+	Model          string `json:"model,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
+}
+
+// ToolHookInput is the JSON passed to PreToolUse and PostToolUse hooks via stdin.
+type ToolHookInput struct {
+	HookContext
+	ToolName   string          `json:"tool_name,omitempty"`
+	ToolInput  json.RawMessage `json:"tool_input,omitempty"`
+	ToolOutput json.RawMessage `json:"tool_output,omitempty"`
 }
 
 // StopInput is the JSON passed to Stop hooks via stdin.
 type StopInput struct {
-	SessionID           string `json:"session_id"`
-	TurnID              string `json:"turn_id"`
-	TranscriptPath      string `json:"transcript_path,omitempty"`
-	CWD                 string `json:"cwd"`
-	HookEventName       string `json:"hook_event_name"`
-	Model               string `json:"model"`
-	PermissionMode      string `json:"permission_mode"`
-	StopHookActive      bool   `json:"stop_hook_active"`
+	HookContext
+	StopHookActive       bool   `json:"stop_hook_active"`
 	LastAssistantMessage string `json:"last_assistant_message,omitempty"`
 }
 
@@ -116,12 +126,12 @@ type StopInput struct {
 // from an explicit false. A nil Continue is treated as "continue" (safe default),
 // whereas *Continue == false means "abort session".
 type HookOutput struct {
-	Continue       *bool        `json:"continue,omitempty"`        // nil/true = continue, false = abort session
-	StopReason     string       `json:"stopReason,omitempty"`      // Shown when continue=false
-	SuppressOutput bool         `json:"suppressOutput,omitempty"`  // Reserved
-	SystemMessage  string       `json:"systemMessage,omitempty"`   // Displayed as warning
-	Decision       HookDecision `json:"decision,omitempty"`        // "block" for Stop/UserPromptSubmit
-	Reason         string       `json:"reason,omitempty"`          // Required when decision=block
+	Continue       *bool           `json:"continue,omitempty"`           // nil/true = continue, false = abort session
+	StopReason     string          `json:"stopReason,omitempty"`         // Shown when continue=false
+	SuppressOutput bool            `json:"suppressOutput,omitempty"`     // Reserved
+	SystemMessage  string          `json:"systemMessage,omitempty"`      // Displayed as warning
+	Decision       HookDecision    `json:"decision,omitempty"`           // "block" for Stop/UserPromptSubmit
+	Reason         string          `json:"reason,omitempty"`             // Required when decision=block
 	Specific       json.RawMessage `json:"hookSpecificOutput,omitempty"` // Event-specific output
 }
 

@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/randalmurphal/llmkit/claudecontract"
+	"github.com/randalmurphal/llmkit/v2/claudecontract"
 )
 
 // Settings represents Claude Code's settings.json structure.
@@ -16,8 +16,8 @@ type Settings struct {
 	Hooks          map[string][]Hook `json:"hooks,omitempty"`
 	EnabledPlugins map[string]bool   `json:"enabledPlugins,omitempty"`
 	StatusLine     *StatusLine       `json:"statusLine,omitempty"`
-	Permissions    *ToolPermissions  `json:"permissions,omitempty"`    // Native Claude Code permissions format
-	Extensions     map[string]any    `json:"extensions,omitempty"`     // For custom extensions like "orc"
+	Permissions    *ToolPermissions  `json:"permissions,omitempty"` // Native Claude Code permissions format
+	Extensions     map[string]any    `json:"extensions,omitempty"`  // For custom extensions like "orc"
 }
 
 // Hook represents a hook entry in settings.json.

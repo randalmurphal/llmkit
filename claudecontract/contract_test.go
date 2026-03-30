@@ -221,10 +221,10 @@ func findClaudeCLI() (string, error) {
 
 	// Try common locations
 	locations := []string{
-		"claude",                             // In PATH
-		home + "/.local/bin/claude",          // User install
-		home + "/.claude/local/claude",       // Claude Code internal
-		"/usr/local/bin/claude",              // System install
+		"claude",                       // In PATH
+		home + "/.local/bin/claude",    // User install
+		home + "/.claude/local/claude", // Claude Code internal
+		"/usr/local/bin/claude",        // System install
 	}
 
 	for _, loc := range locations {

@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/randalmurphal/llmkit/claudecontract"
+	"github.com/randalmurphal/llmkit/v2/claudecontract"
 )
 
 // ClaudeMD represents a CLAUDE.md file.

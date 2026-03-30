@@ -22,7 +22,7 @@ Text truncation utilities for managing LLM context windows.
 ### Basic Truncation
 
 ```go
-import "github.com/randalmurphal/llmkit/truncate"
+import "github.com/randalmurphal/llmkit/v2/truncate"
 
 // Create truncator
 tr := truncate.NewFromEnd()
@@ -79,4 +79,4 @@ result := truncate.Smart(text, 500)
 
 ## Dependencies
 
-- `github.com/randalmurphal/llmkit/tokens` for Counter interface
+- `github.com/randalmurphal/llmkit/v2/tokens` for Counter interface

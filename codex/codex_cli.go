@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/randalmurphal/llmkit/codexcontract"
+	"github.com/randalmurphal/llmkit/v2/codexcontract"
 )
 
 // SandboxMode specifies the sandbox level for file system operations.

@@ -510,7 +510,7 @@ import (
     "context"
     "log"
 
-    "github.com/randalmurphal/llmkit/claude"
+    "github.com/randalmurphal/llmkit/v2/claude"
 )
 
 func main() {
@@ -627,7 +627,7 @@ import (
     "log"
     "os"
 
-    "github.com/randalmurphal/llmkit/claude"
+    "github.com/randalmurphal/llmkit/v2/claude"
 )
 
 func main() {
@@ -747,7 +747,7 @@ import tkclaude "github.com/randalmurphal/task-keeper/internal/claude"
 client := tkclaude.NewClient(tkclaude.Config{...})
 
 // New: direct use
-import "github.com/randalmurphal/llmkit/claude"
+import "github.com/randalmurphal/llmkit/v2/claude"
 client := claude.NewFromConfig(claude.Config{...})
 ```
 

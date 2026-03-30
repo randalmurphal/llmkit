@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/randalmurphal/llmkit/codex"
+	"github.com/randalmurphal/llmkit/v2/codex"
 )
 
 func TestCodexCLI_Complete_E2EWithMockCLI(t *testing.T) {

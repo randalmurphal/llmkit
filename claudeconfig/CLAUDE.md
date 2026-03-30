@@ -1,150 +1,65 @@
 # claudeconfig
 
-**Claude configuration file parsing.** Reads and writes Claude's `.claude/` directory structure including settings, skills, MCP servers, and plugins.
+Provider-native parsing and mutation helpers for Claude ecosystem files under `.claude/` plus project `CLAUDE.md`.
 
----
+## Main Surfaces
 
-## Package Contents
+| Surface | Purpose |
+|---------|---------|
+| `Settings` | Read/write `settings.json`, hooks, permissions, env, plugin enablement |
+| `MCPConfig` | Read/write `.mcp.json` server definitions |
+| `Skill` | Parse and discover `SKILL.md` skills |
+| `ClaudeMD` | Parse project instruction files |
+| `SubAgent` / `AgentService` | Discover and manage Claude agent files |
+| `ProjectScript` / `ScriptService` | Discover and manage reusable scripts |
+| `Plugin` / `PluginService` | Discover plugins and manage enablement |
+| `Marketplace` helpers | Work with Claude plugin marketplaces |
 
-| File | Purpose | Key Types |
-|------|---------|-----------|
-| `settings.go` | `settings.json` parsing | `Settings`, `HookConfig`, `AgentConfig` |
-| `skill.go` | `SKILL.md` parsing | `Skill`, `ParseSkillMD()` |
-| `mcp.go` | `.mcp.json` parsing | `MCPConfig`, `MCPServer` |
-| `plugin.go` | Plugin discovery | `Plugin`, `DiscoverPlugins()` |
-| `plugin_service.go` | Plugin service management | `PluginService` |
-| `claudemd.go` | `CLAUDE.md` parsing | `ClaudeMD`, `ParseClaudeMD()` |
-| `agents.go` | Agent definitions | `SubAgent`, `AgentStore` |
-| `agent_discovery.go` | Agent `.md` discovery | `DiscoverAgents()` |
-| `scripts.go` | Script discovery | `Script`, `DiscoverScripts()` |
-| `tools.go` | Tool catalog | `Tool`, `BuiltinTools()` |
-| `marketplace.go` | Plugin marketplace | `MarketplaceClient` |
+## Important Paths
 
----
+| Path | Purpose |
+|------|---------|
+| `~/.claude/settings.json` | Global settings |
+| `<project>/.claude/settings.json` | Project settings |
+| `<project>/.mcp.json` | Project MCP config |
+| `~/.claude/skills/*/SKILL.md` | User skills |
+| `<project>/.claude/skills/*/SKILL.md` | Project skills |
+| `<project>/CLAUDE.md` | Project instructions |
 
-## File Locations
+## Common Operations
 
-Uses constants from `claudecontract/paths.go`:
-
-| File | Default Path | Purpose |
-|------|--------------|---------|
-| `settings.json` | `~/.claude/settings.json` | User preferences, hooks |
-| `.mcp.json` | `~/.claude/.mcp.json` | MCP server configuration |
-| `.credentials.json` | `~/.claude/.credentials.json` | OAuth tokens |
-| `SKILL.md` | `~/.claude/skills/*/SKILL.md` | Skill definitions |
-| `CLAUDE.md` | Project root | Project instructions |
-
----
-
-## Key Types
-
-### Settings (settings.go)
-
-```go
-type Settings struct {
-    Theme          string                 `json:"theme"`
-    Model          string                 `json:"model"`
-    Hooks          map[string]HookConfig  `json:"hooks"`
-    AllowedTools   []string               `json:"allowedTools"`
-    Agents         map[string]AgentConfig `json:"agents"`
-}
-
-// Load from default location
-settings, err := LoadSettings("")
-
-// Load from specific path
-settings, err := LoadSettings("/path/to/settings.json")
-```
-
-### MCPConfig (mcp.go)
-
-```go
-type MCPConfig struct {
-    Servers map[string]MCPServer `json:"mcpServers"`
-}
-
-type MCPServer struct {
-    Command string            `json:"command"`
-    Args    []string          `json:"args"`
-    Env     map[string]string `json:"env"`
-}
-
-// Load MCP configuration
-config, err := LoadMCPConfig("/project/.mcp.json")
-```
-
-### Skill (skill.go)
-
-```go
-type Skill struct {
-    Name        string   // From directory name
-    Description string   // From SKILL.md frontmatter
-    Prompt      string   // Skill prompt content
-    AllowedTools []string // Tools this skill can use
-}
-
-// Parse SKILL.md file
-skill, err := ParseSkillMD("/path/to/SKILL.md")
-```
-
-### Plugin (plugin.go)
-
-```go
-type Plugin struct {
-    Name    string
-    Path    string
-    Config  PluginConfig  // From plugin.json
-}
-
-// Discover all plugins in a directory
-plugins, err := DiscoverPlugins("~/.claude/plugins")
-```
-
----
+| Operation | API |
+|----------|-----|
+| Load merged settings | `LoadSettings(workDir)` |
+| Load project settings only | `LoadProjectSettings(workDir)` |
+| Save project settings | `SaveProjectSettings(workDir, settings)` |
+| Load project MCP config | `LoadProjectMCPConfig(workDir)` |
+| Save project MCP config | `SaveProjectMCPConfig(workDir, cfg)` |
+| Parse one skill | `ParseSkillMD(path)` |
+| Discover skills | `DiscoverSkills(dir)` |
+| Load instruction hierarchy | `LoadClaudeMDHierarchy(workDir)` |
+| Create agent manager | `NewAgentService(projectRoot)` |
+| Create script manager | `NewScriptService(projectRoot)` |
+| Discover plugins | `DiscoverPlugins(claudeDir)` |
 
 ## Hook Events
 
-Supported hook events (from `claudecontract/formats.go`):
+The settings helper re-exports hook event constants from `claudecontract`, including:
 
-| Event | When Triggered |
-|-------|----------------|
-| `PreToolUse` | Before tool execution |
-| `PostToolUse` | After tool succeeds |
-| `PostToolUseFailure` | After tool fails |
-| `PreCompact` | Before context compaction |
-| `Stop` | Claude finishes responding |
-| `SessionStart` | Session begins |
-| `SessionEnd` | Session terminates |
-| `UserPromptSubmit` | User submits prompt |
+- `HookPreToolUse`
+- `HookPostToolUse`
+- `HookPreCompact`
+- `HookStop`
 
----
+Use `ValidHookEvents()` when validating user-provided values.
 
-## Discovery Functions
+## V2 Notes
 
-| Function | Purpose | Returns |
-|----------|---------|---------|
-| `DiscoverPlugins(dir)` | Find all plugins | `[]Plugin` |
-| `DiscoverAgents(dir)` | Find agent `.md` files | `[]Agent` |
-| `DiscoverScripts(dir)` | Find hook scripts | `[]Script` |
-| `DiscoverSkills(dir)` | Find skill directories | `[]Skill` |
-
----
+- This package remains public in V2 because Claude’s file formats are part of the supported ecosystem surface.
+- Root `llmkit.Config` and `llmkit.Request` do not depend on `claudeconfig`; config-file mutation stays explicit and opt-in.
 
 ## Testing
 
 ```bash
-# Run all tests
 go test ./claudeconfig/...
-
-# Run specific test
-go test ./claudeconfig/... -run TestLoadSettings -v
 ```
-
-Test files use fixtures in `testdata/` directory.
-
----
-
-## Dependencies
-
-- Imports `claudecontract/` for path and hook event constants
-- No external dependencies (stdlib only)

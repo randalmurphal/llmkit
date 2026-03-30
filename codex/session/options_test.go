@@ -41,6 +41,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.systemPrompt != "" {
 		t.Errorf("expected empty systemPrompt, got %q", cfg.systemPrompt)
 	}
+	if cfg.reasoningEffort != "" {
+		t.Errorf("expected empty reasoningEffort, got %q", cfg.reasoningEffort)
+	}
 	if len(cfg.enabledFeatures) != 0 {
 		t.Errorf("expected empty enabledFeatures, got %v", cfg.enabledFeatures)
 	}
@@ -133,6 +136,15 @@ func TestWithSystemPrompt(t *testing.T) {
 
 	if cfg.systemPrompt != "You are helpful." {
 		t.Errorf("expected 'You are helpful.', got %q", cfg.systemPrompt)
+	}
+}
+
+func TestWithReasoningEffort(t *testing.T) {
+	cfg := defaultConfig()
+	WithReasoningEffort("high")(&cfg)
+
+	if cfg.reasoningEffort != "high" {
+		t.Errorf("expected 'high', got %q", cfg.reasoningEffort)
 	}
 }
 
@@ -282,6 +294,7 @@ func TestOptionsCompose(t *testing.T) {
 		WithModel("o4-mini"),
 		WithWorkdir("/project"),
 		WithFullAuto(),
+		WithReasoningEffort("medium"),
 		WithStartupTimeout(15 * time.Second),
 		WithIdleTimeout(5 * time.Minute),
 		WithEnabledFeatures([]string{"hooks"}),
@@ -303,6 +316,9 @@ func TestOptionsCompose(t *testing.T) {
 	}
 	if !cfg.fullAuto {
 		t.Error("fullAuto: expected true")
+	}
+	if cfg.reasoningEffort != "medium" {
+		t.Errorf("reasoningEffort: expected 'medium', got %q", cfg.reasoningEffort)
 	}
 	if cfg.startupTimeout != 15*time.Second {
 		t.Errorf("startupTimeout: expected 15s, got %v", cfg.startupTimeout)

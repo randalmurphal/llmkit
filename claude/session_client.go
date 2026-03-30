@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/randalmurphal/llmkit/claude/session"
+	"github.com/randalmurphal/llmkit/v2/claude/session"
 )
 
 // SessionClient wraps a session.Session to implement the Client interface.
@@ -16,8 +16,8 @@ import (
 // Unlike ClaudeCLI which spawns a new process per request, SessionClient
 // maintains a long-running Claude CLI process with full conversation history.
 type SessionClient struct {
-	session session.Session
-	manager session.SessionManager
+	session     session.Session
+	manager     session.SessionManager
 	ownsSession bool // True if we created the session and should close it
 }
 

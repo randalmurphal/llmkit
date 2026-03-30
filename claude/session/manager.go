@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -38,10 +39,12 @@ type SessionManager interface {
 type manager struct {
 	config     managerConfig
 	sessions   map[string]*session
+	aliases    map[string]string
 	mu         sync.RWMutex
 	closed     bool
 	closedOnce sync.Once
 	stopClean  chan struct{}
+	nextKey    atomic.Uint64
 }
 
 // NewManager creates a new session manager.
@@ -54,6 +57,7 @@ func NewManager(opts ...ManagerOption) SessionManager {
 	m := &manager{
 		config:    cfg,
 		sessions:  make(map[string]*session),
+		aliases:   make(map[string]string),
 		stopClean: make(chan struct{}),
 	}
 
@@ -98,19 +102,65 @@ func (m *manager) Create(ctx context.Context, opts ...SessionOption) (Session, e
 		return nil, fmt.Errorf("max sessions reached (%d)", m.config.maxSessions)
 	}
 
-	m.sessions[s.ID()] = s
+	key := m.sessionKeyForCreate(s)
+	m.sessions[key] = s
+	if sessionID := s.ID(); sessionID != "" {
+		if _, exists := m.aliases[sessionID]; exists {
+			delete(m.sessions, key)
+			_ = s.Close()
+			return nil, fmt.Errorf("session already tracked: %s", sessionID)
+		}
+		m.aliases[sessionID] = key
+	}
 
-	// Start goroutine to remove session when it closes
-	go m.watchSession(s)
+	// Start goroutines to track init/close lifecycle.
+	go m.trackSessionID(key, s)
+	go m.watchSession(key, s)
 
 	return s, nil
 }
 
+func (m *manager) sessionKeyForCreate(s *session) string {
+	if id := s.ID(); id != "" {
+		return id
+	}
+	return fmt.Sprintf("__pending__:%d", m.nextKey.Add(1))
+}
+
+func (m *manager) trackSessionID(key string, s *session) {
+	if s.ID() == "" {
+		if err := s.WaitForInit(context.Background()); err != nil {
+			return
+		}
+	}
+
+	sessionID := s.ID()
+	if sessionID == "" {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current, ok := m.sessions[key]
+	if !ok || current != s {
+		return
+	}
+	if existingKey, exists := m.aliases[sessionID]; exists && existingKey != key {
+		return
+	}
+	m.aliases[sessionID] = key
+}
+
 // watchSession removes a session from the map when it closes.
-func (m *manager) watchSession(s *session) {
+func (m *manager) watchSession(key string, s *session) {
 	<-s.done
 	m.mu.Lock()
-	delete(m.sessions, s.ID())
+	delete(m.sessions, key)
+	sessionID := s.ID()
+	if sessionID != "" && m.aliases[sessionID] == key {
+		delete(m.aliases, sessionID)
+	}
 	m.mu.Unlock()
 }
 
@@ -119,7 +169,11 @@ func (m *manager) Get(sessionID string) (Session, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	s, ok := m.sessions[sessionID]
+	key, ok := m.aliases[sessionID]
+	if !ok {
+		return nil, false
+	}
+	s, ok := m.sessions[key]
 	if !ok || s.Status() != StatusActive {
 		return nil, false
 	}
@@ -141,7 +195,12 @@ func (m *manager) Resume(ctx context.Context, sessionID string, opts ...SessionO
 // Close implements SessionManager.
 func (m *manager) Close(sessionID string) error {
 	m.mu.Lock()
-	s, ok := m.sessions[sessionID]
+	key, ok := m.aliases[sessionID]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	s, ok := m.sessions[key]
 	if !ok {
 		m.mu.Unlock()
 		return fmt.Errorf("session not found: %s", sessionID)
@@ -181,8 +240,9 @@ func (m *manager) List() []string {
 	defer m.mu.RUnlock()
 
 	ids := make([]string, 0, len(m.sessions))
-	for id, s := range m.sessions {
-		if s.Status() == StatusActive {
+	for id, key := range m.aliases {
+		s, ok := m.sessions[key]
+		if ok && s.Status() == StatusActive {
 			ids = append(ids, id)
 		}
 	}
@@ -201,7 +261,11 @@ func (m *manager) Info(sessionID string) (*SessionInfo, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	s, ok := m.sessions[sessionID]
+	key, ok := m.aliases[sessionID]
+	if !ok {
+		return nil, false
+	}
+	s, ok := m.sessions[key]
 	if !ok {
 		return nil, false
 	}

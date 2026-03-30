@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/randalmurphal/llmkit/codex"
+	"github.com/randalmurphal/llmkit/v2/codex"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

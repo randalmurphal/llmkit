@@ -1,178 +1,63 @@
 # claude
 
-**Claude CLI wrapper with streaming event parsing and OAuth credential management.** Provides a Go interface for invoking the Claude CLI binary with full configuration support.
+Claude CLI wrapper for V2. This package supports direct one-shot usage, root-registry registration, stream-json parsing, and long-running session management under [`session/`](./session/).
 
----
+## Main Surfaces
 
-## Package Contents
+| Surface | Purpose |
+|---------|---------|
+| `ClaudeCLI` | Direct Claude CLI client |
+| `CompletionRequest` / `CompletionResponse` | One-shot request and response types |
+| `StreamJSON` | Stream Claude `stream-json` events plus final result |
+| `Config` | Serializable config that maps onto option functions |
+| `session/` | Long-running Claude CLI sessions with `Send`, `Output`, and `WaitForInit` |
+| `register.go` | V2 root registry adapter for `llmkit.New("claude", ...)` |
 
-| File | Purpose | Key Types |
-|------|---------|-----------|
-| `client.go` | Client interface | `Client` |
-| `claude_cli.go` | CLI implementation | `ClaudeCLI`, `NewClaudeCLI()` |
-| `stream_types.go` | Streaming event types | `StreamEvent`, `InitEvent`, `AssistantEvent`, `UserEvent`, `ResultEvent` |
-| `stream.go` | Stream accumulation | `StreamAccumulator` |
-| `config.go` | Configuration | `Config`, `FromEnv()`, `Validate()` |
-| `factory.go` | Client factories | `NewFromConfig()`, `NewFromEnv()` |
-| `singleton.go` | Default client | `GetDefaultClient()`, `SetDefaultClient()` |
-| `context.go` | Context injection | `ContextWithClient()`, `ClientFromContext()` |
-| `credentials.go` | OAuth credentials | `Credentials`, `LoadCredentials()` |
-| `request.go` | Request/response | `CompletionRequest`, `CompletionResponse` |
-| `errors.go` | Error types | `ErrRateLimited`, `ErrTimeout` |
-| `mock.go` | Test mock | `MockClient` |
+## Key Options
 
----
-
-## Streaming Events (stream_types.go)
-
-Claude CLI `--output-format stream-json` emits JSONL with these event types:
-
-| Event Type | Struct | When Emitted |
-|------------|--------|--------------|
-| `init` | `InitEvent` | Session start, contains tools/model/session_id |
-| `assistant` | `AssistantEvent` | Claude responses with content blocks |
-| `user` | `UserEvent` | Tool results after execution |
-| `result` | `ResultEvent` | Final result with usage/cost |
-| `hook` | `HookEvent` | Hook script output |
-
-### Key Streaming Types
-
-```go
-type StreamEvent struct {
-    Type      StreamEventType  // init, assistant, user, result, hook, error
-    SessionID string
-    Init      *InitEvent       // When Type == StreamEventInit
-    Assistant *AssistantEvent  // When Type == StreamEventAssistant
-    User      *UserEvent       // When Type == StreamEventUser
-    Result    *ResultEvent     // When Type == StreamEventResult
-    Hook      *HookEvent       // When Type == StreamEventHook
-    Raw       json.RawMessage  // Original JSON for advanced parsing
-}
-
-type UserEvent struct {
-    SessionID       string
-    Message         UserEventMessage
-    ParentToolUseID *string           // For subagent results
-    ToolUseResultRaw json.RawMessage  // String (error) or object (result)
-}
-
-// Access tool result (handles string vs object)
-result := userEvent.GetToolUseResult()  // *ToolUseResult or nil
-errStr := userEvent.GetToolUseResultError()  // string if error
-```
-
-### Content Blocks
-
-```go
-type ContentBlock struct {
-    Type  string          // "text", "tool_use", "tool_result"
-    Text  string          // For text blocks
-    ID    string          // For tool_use
-    Name  string          // Tool name for tool_use
-    Input json.RawMessage // Tool input for tool_use
-}
-```
-
----
-
-## Configuration Options
-
-| Option | Description |
-|--------|-------------|
-| `WithModel(name)` | Model selection |
+| Option | Purpose |
+|--------|---------|
+| `WithModel(name)` | Select model |
+| `WithFallbackModel(name)` | Set fallback model |
 | `WithTimeout(dur)` | Request timeout |
 | `WithWorkdir(path)` | Working directory |
-| `WithHomeDir(path)` | Override HOME (containers) |
-| `WithDangerouslySkipPermissions()` | Non-interactive mode |
-| `WithSessionID(id)` | Continue existing session |
-| `WithSystemPrompt(prompt)` | System prompt |
-| `WithAppendSystemPrompt(prompt)` | Append to system prompt |
-| `WithMaxBudgetUSD(amount)` | Spending limit |
-| `WithMaxTurns(n)` | Conversation turn limit |
-| `WithAllowedTools(tools...)` | Restrict tools |
-| `WithDisallowedTools(tools...)` | Block specific tools |
+| `WithDangerouslySkipPermissions()` | Non-interactive trusted execution |
 | `WithPermissionMode(mode)` | Permission behavior |
-| `WithJSONSchema(schema)` | Structured output |
+| `WithAllowedTools(tools)` | Allow-list tools |
+| `WithDisallowedTools(tools)` | Block tools |
+| `WithTools(tools)` | Set exact built-in tool set |
+| `WithSystemPrompt(prompt)` | Replace system prompt |
+| `WithAppendSystemPrompt(prompt)` | Append to system prompt |
+| `WithJSONSchema(schema)` | Require structured output |
+| `WithMCPServers(servers)` | Inline MCP server definitions |
+| `WithSessionID(id)` / `WithResume(id)` | One-shot session continuity |
 
----
+## Streaming
+
+`StreamJSON` parses Claude `--output-format stream-json` output into typed events:
+
+| Event | Meaning |
+|-------|---------|
+| `StreamEventInit` | Initial session metadata |
+| `StreamEventAssistant` | Assistant message content blocks |
+| `StreamEventUser` | Tool-result/user echo events |
+| `StreamEventResult` | Final turn result with usage/cost |
+| `StreamEventHook` | Hook output when enabled |
+
+For long-running interactive sessions, use [`claude/session`](./session/), not `ClaudeCLI.StreamJSON`.
+
+## V2 Integration
+
+- Direct import: `github.com/randalmurphal/llmkit/v2/claude`
+- Root registration: blank-import `github.com/randalmurphal/llmkit/v2/claude` or `github.com/randalmurphal/llmkit/v2/providers`
+- Shared root request/response types live in `github.com/randalmurphal/llmkit/v2`
 
 ## Testing
 
-### Test Files
-
-| File | Purpose | Run With |
-|------|---------|----------|
-| `behavioral_test.go` | Real CLI validation (26 tests) | `TEST_BEHAVIORAL=1 go test -run Behavioral` |
-| `golden_test.go` | Parsing validation against captured output | `go test -run Golden` |
-| `mock_test.go` | Mock client tests | `go test -run Mock` |
-| `internal_test.go` | Unit tests | `go test` |
-
-### Behavioral Tests (behavioral_test.go)
-
-Tests real CLI behavior. **Uses API credits.** Run intentionally:
-
 ```bash
+go test ./claude/...
 TEST_BEHAVIORAL=1 go test ./claude/... -run Behavioral -v -timeout 15m
+go test ./claude/session/...
 ```
 
-**30 tests covering these flags:**
-
-| Flag | Test |
-|------|------|
-| `--max-turns` | `TestBehavioralMaxTurns` |
-| `--allowedTools` | `TestBehavioralAllowedTools` |
-| `--disallowedTools` | `TestBehavioralDisallowedTools` |
-| `--permission-mode` | `TestBehavioralPermissionMode` |
-| `--model` | `TestBehavioralModelSelection` |
-| `--json-schema` | `TestBehavioralJSONSchema` |
-| `--resume` | `TestBehavioralSessionContinuity` |
-| `--system-prompt` | `TestBehavioralSystemPrompt` |
-| `--append-system-prompt` | `TestBehavioralAppendSystemPrompt` |
-| `--system-prompt-file` | `TestBehavioralSystemPromptFile` |
-| `--append-system-prompt-file` | `TestBehavioralAppendSystemPromptFile` |
-| `--tools` | `TestBehavioralToolsRestriction` |
-| `--max-budget-usd` | `TestBehavioralMaxBudgetTracking` |
-| `--no-session-persistence` | `TestBehavioralNoSessionPersistence` |
-| `--fallback-model` | `TestBehavioralFallbackModel` |
-| `--output-format` | `TestBehavioralOutputFormatJSON` |
-| `--add-dir` | `TestBehavioralAddDir` |
-| `--agents` | `TestBehavioralAgentsCustom` |
-| `--fork-session` | `TestBehavioralForkSession` |
-| `--verbose` | `TestBehavioralVerbose` |
-
-**Design**: Tests FAIL on parse errors or unexpected CLI behavior. No silent warnings.
-
-### Golden Tests (golden_test.go)
-
-Tests event parsing against `testdata/golden/*.jsonl`:
-
-```bash
-go test ./claude/... -run Golden -v
-```
-
----
-
-## Error Handling
-
-```go
-// Sentinel errors
-var (
-    ErrUnavailable    = errors.New("LLM service unavailable")
-    ErrRateLimited    = errors.New("rate limited")
-    ErrTimeout        = errors.New("request timed out")
-)
-
-// Credential errors
-var (
-    ErrCredentialsNotFound = errors.New("credentials file not found")
-    ErrCredentialsExpired  = errors.New("credentials expired")
-)
-```
-
----
-
-## Dependencies
-
-- Imports `claudecontract/` for flag and event constants
-- Imports `provider/` for unified interface registration
-- No external dependencies (stdlib only)
+Behavioral tests use real Claude CLI execution and API credits. Golden and unit tests validate parsing and option construction without real network execution.

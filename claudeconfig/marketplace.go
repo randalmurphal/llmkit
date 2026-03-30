@@ -56,12 +56,12 @@ func (c *MarketplaceCache) IsValid() bool {
 
 // MarketplaceService handles marketplace operations.
 type MarketplaceService struct {
-	claudeDir    string
+	claudeDir      string
 	marketplaceURL string
-	cache        *MarketplaceCache
-	cachePath    string
-	httpClient   *http.Client
-	mu           sync.RWMutex
+	cache          *MarketplaceCache
+	cachePath      string
+	httpClient     *http.Client
+	mu             sync.RWMutex
 }
 
 // MarketplaceOption configures the MarketplaceService.

@@ -14,7 +14,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/randalmurphal/llmkit/claudecontract"
+	"github.com/randalmurphal/llmkit/v2/claudecontract"
 )
 
 // Session manages a long-running Claude CLI process with stream-json I/O.
@@ -69,6 +69,9 @@ type session struct {
 	// Output handling
 	outputCh chan OutputMessage
 	initMsg  *InitMessage
+	metaMu   sync.RWMutex
+	initDone chan struct{}
+	initOnce sync.Once
 
 	// State
 	status       atomic.Value // SessionStatus
@@ -94,12 +97,16 @@ func newSession(ctx context.Context, opts ...SessionOption) (*session, error) {
 		config:    cfg,
 		id:        cfg.sessionID, // Use provided session ID immediately (if any)
 		outputCh:  make(chan OutputMessage, 100),
+		initDone:  make(chan struct{}),
 		done:      make(chan struct{}),
 		createdAt: time.Now(),
 	}
 	s.status.Store(StatusCreating)
 	s.lastActivity.Store(time.Now())
 	s.totalCost.Store(0.0)
+	if s.id != "" {
+		s.initOnce.Do(func() { close(s.initDone) })
+	}
 
 	if err := s.start(ctx); err != nil {
 		return nil, err
@@ -339,8 +346,13 @@ func (s *session) updateFromMessage(msg *OutputMessage) {
 	s.lastActivity.Store(time.Now())
 
 	if msg.IsInit() && msg.Init != nil {
+		s.metaMu.Lock()
 		s.initMsg = msg.Init
-		s.id = msg.SessionID
+		if msg.SessionID != "" {
+			s.id = msg.SessionID
+		}
+		s.metaMu.Unlock()
+		s.initOnce.Do(func() { close(s.initDone) })
 	}
 
 	if msg.IsResult() && msg.Result != nil {
@@ -357,29 +369,22 @@ func (s *session) updateFromMessage(msg *OutputMessage) {
 // Note: In normal usage, you don't need to call this - just Send() a message
 // and the init will be captured automatically.
 func (s *session) WaitForInit(ctx context.Context) error {
-	// Check if already initialized
-	if s.initMsg != nil {
-		return nil
-	}
-
-	// Wait for init message to arrive
 	for {
 		select {
+		case <-s.initDone:
+			return nil
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-s.done:
 			return fmt.Errorf("session closed before init")
-		default:
-			if s.initMsg != nil {
-				return nil
-			}
-			time.Sleep(10 * time.Millisecond)
 		}
 	}
 }
 
 // ID implements Session.
 func (s *session) ID() string {
+	s.metaMu.RLock()
+	defer s.metaMu.RUnlock()
 	return s.id
 }
 
@@ -484,7 +489,7 @@ func (s *session) Status() SessionStatus {
 // Info implements Session.
 func (s *session) Info() SessionInfo {
 	return SessionInfo{
-		ID:           s.id,
+		ID:           s.ID(),
 		Status:       s.Status(),
 		Model:        s.getModel(),
 		CWD:          s.config.workdir,
@@ -497,6 +502,8 @@ func (s *session) Info() SessionInfo {
 
 // getModel returns the model from init message or config.
 func (s *session) getModel() string {
+	s.metaMu.RLock()
+	defer s.metaMu.RUnlock()
 	if s.initMsg != nil && s.initMsg.Model != "" {
 		return s.initMsg.Model
 	}
@@ -521,7 +528,7 @@ func (s *session) setCloseError(err error) {
 // JSONLPath implements Session.
 // Returns the path to Claude Code's session JSONL file.
 func (s *session) JSONLPath() string {
-	sessionID := s.id
+	sessionID := s.ID()
 	if sessionID == "" {
 		return ""
 	}

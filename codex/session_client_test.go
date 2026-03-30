@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/randalmurphal/llmkit/codex"
-	"github.com/randalmurphal/llmkit/codex/session"
-	"github.com/randalmurphal/llmkit/codexcontract"
+	"github.com/randalmurphal/llmkit/v2/codex"
+	"github.com/randalmurphal/llmkit/v2/codex/session"
+	"github.com/randalmurphal/llmkit/v2/codexcontract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -49,14 +49,14 @@ func newTestSession(id string) *testSession {
 	}
 }
 
-func (s *testSession) ID() string       { return s.id }
-func (s *testSession) ThreadID() string  { return s.threadID }
-func (s *testSession) Status() session.SessionStatus { return s.status }
-func (s *testSession) Info() session.SessionInfo      { return s.info }
-func (s *testSession) Wait() error                    { return nil }
-func (s *testSession) WaitForInit(_ context.Context) error { return nil }
+func (s *testSession) ID() string                           { return s.id }
+func (s *testSession) ThreadID() string                     { return s.threadID }
+func (s *testSession) Status() session.SessionStatus        { return s.status }
+func (s *testSession) Info() session.SessionInfo            { return s.info }
+func (s *testSession) Wait() error                          { return nil }
+func (s *testSession) WaitForInit(_ context.Context) error  { return nil }
 func (s *testSession) Output() <-chan session.OutputMessage { return s.outputCh }
-func (s *testSession) JSONLPath() string { return "" }
+func (s *testSession) JSONLPath() string                    { return "" }
 
 func (s *testSession) Send(_ context.Context, msg session.UserMessage) error {
 	s.closeMu.Lock()

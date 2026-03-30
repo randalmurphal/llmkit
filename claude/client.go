@@ -1,7 +1,7 @@
 // Package claude provides interfaces and implementations for the Claude Code CLI.
 //
 // This package can be used directly via NewClaudeCLI, or through the unified
-// provider interface via provider.New("claude", cfg).
+// llmkit interface via llmkit.New("claude", cfg).
 //
 // # Direct Usage
 //
@@ -13,16 +13,16 @@
 //	    Messages: []claude.Message{{Role: claude.RoleUser, Content: "Hello"}},
 //	})
 //
-// # Provider Interface Usage
+// # Unified llmkit Usage
 //
-//	import _ "github.com/randalmurphal/llmkit/claude" // Register provider
+//	import _ "github.com/randalmurphal/llmkit/v2/claude" // Register provider
 //
-//	client, err := provider.New("claude", provider.Config{
+//	client, err := llmkit.New("claude", llmkit.Config{
 //	    Provider: "claude",
 //	    Model:    "claude-sonnet-4-20250514",
 //	})
-//	resp, err := client.Complete(ctx, provider.Request{
-//	    Messages: []provider.Message{{Role: provider.RoleUser, Content: "Hello"}},
+//	resp, err := client.Complete(ctx, llmkit.Request{
+//	    Messages: []llmkit.Message{{Role: llmkit.RoleUser, Content: "Hello"}},
 //	})
 package claude
 

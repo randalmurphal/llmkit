@@ -1,15 +1,10 @@
-// Package providers registers all known LLM CLI providers.
-// Import this package to make all providers available via provider.New():
+// Package providers registers the supported V2 LLM CLI providers.
+// Import this package to make Claude and Codex available via llmkit.New():
 //
-//	import _ "github.com/randalmurphal/llmkit/providers"
+//	import _ "github.com/randalmurphal/llmkit/v2/providers"
 package providers
 
 import (
-	_ "github.com/randalmurphal/llmkit/aider"
-	_ "github.com/randalmurphal/llmkit/claude"
-	_ "github.com/randalmurphal/llmkit/codex"
-	_ "github.com/randalmurphal/llmkit/continue"
-	_ "github.com/randalmurphal/llmkit/gemini"
-	_ "github.com/randalmurphal/llmkit/local"
-	_ "github.com/randalmurphal/llmkit/opencode"
+	_ "github.com/randalmurphal/llmkit/v2/claude"
+	_ "github.com/randalmurphal/llmkit/v2/codex"
 )

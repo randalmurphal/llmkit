@@ -1,7 +1,7 @@
 package claude
 
 import (
-	"github.com/randalmurphal/llmkit/claude/session"
+	"github.com/randalmurphal/llmkit/v2/claude/session"
 )
 
 // Session-related type aliases for convenience.

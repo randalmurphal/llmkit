@@ -1,6 +1,6 @@
 package truncate
 
-import "github.com/randalmurphal/llmkit/tokens"
+import "github.com/randalmurphal/llmkit/v2/tokens"
 
 // Strategy defines how text is truncated.
 type Strategy int

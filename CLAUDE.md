@@ -1,6 +1,6 @@
 # llmkit
 
-**Go library for LLM utilities.** Multi-provider toolkit with unified interface, Claude CLI wrapper, token counting, prompt templates, and response parsing.
+**Go library for LLM utilities.** V2 exposes a shared root API, Claude and Codex provider packages, provider-native config ecosystems, and focused utility packages.
 
 ---
 
@@ -8,51 +8,49 @@
 
 | Package | Purpose | Key Types |
 |---------|---------|-----------|
-| `provider/` | Unified multi-provider interface | `Client`, `Config`, `Request`, `Response` |
-| `claude/` | Claude CLI wrapper with streaming | `ClaudeCLI`, `StreamEvent`, `Config` |
-| `claudecontract/` | Claude CLI interface constants | `Flag*`, `Event*`, `Permission*`, `Tool*` |
-| `claudeconfig/` | Claude config file parsing | `Settings`, `Skill`, `MCPConfig`, `Plugin` |
-| `gemini/` | Gemini CLI wrapper | `GeminiCLI`, `Config` |
-| `codex/` | OpenAI Codex CLI wrapper | `CodexCLI`, `Config` |
-| `opencode/` | OpenCode CLI wrapper | `OpenCodeCLI`, `Config` |
-| `continue/` | Continue.dev CLI wrapper | `ContinueCLI`, `Config` |
-| `aider/` | Aider CLI wrapper | `AiderCLI`, `Config` |
+| root `llmkit/` | Shared client/config/types/registry/model helpers | `Client`, `Config`, `Request`, `Response` |
+| `claude/` | Claude CLI wrapper with streaming | `ClaudeCLI`, `Config` |
+| `codex/` | Codex CLI wrapper with streaming | `CodexCLI`, `Config` |
+| `claudeconfig/` | Claude config and ecosystem parsing | `Settings`, `Skill`, `MCPConfig`, `Plugin` |
+| `codexconfig/` | Codex config and ecosystem parsing | `ConfigFile`, `HookConfig`, `Skill`, `Plugin` |
+| `env/` | Scoped hook/MCP/env lifecycle management | `Scope`, `Settings` |
+| `worktree/` | Git worktree management | `Worktree`, `CreateOptions` |
+| `claudecontract/` | Claude CLI constants/contracts | `Flag*`, `Event*`, `Permission*`, `Tool*` |
+| `codexcontract/` | Codex CLI constants/contracts | `Flag*`, `Event*`, `Hook*` |
 | `template/` | Prompt template rendering | `Engine`, `Render` |
 | `tokens/` | Token counting/budgeting | `Counter`, `Budget` |
 | `parser/` | Extract structured data | `ExtractJSON`, `ExtractCodeBlocks` |
 | `truncate/` | Token-aware truncation | `Truncator`, `FromEnd` |
-| `model/` | Model selection/cost tracking | `Selector`, `CostTracker` |
 
 ---
 
 ## Quick Start
 
-### Unified Provider Interface
+### Unified Root API
 
 ```go
 import (
-    "github.com/randalmurphal/llmkit/provider"
-    _ "github.com/randalmurphal/llmkit/claude"  // Auto-registers
+    "github.com/randalmurphal/llmkit/v2"
+    _ "github.com/randalmurphal/llmkit/v2/claude"  // Auto-registers
 )
 
-cfg := provider.Config{
-    Provider: "claude",
-    Model:    "claude-sonnet-4-20250514",
-    WorkDir:  "/path/to/project",
+cfg := llmkit.Config{
+    Model:   "claude-sonnet-4-20250514",
+    WorkDir: "/path/to/project",
 }
-client, _ := provider.New(cfg.Provider, cfg)
+client, _ := llmkit.New("claude", cfg)
 defer client.Close()
 
-resp, _ := client.Complete(ctx, provider.Request{
+resp, _ := client.Complete(ctx, llmkit.Request{
     SystemPrompt: "You are a helpful assistant.",
-    Messages:     []provider.Message{{Role: provider.RoleUser, Content: "Hello!"}},
+    Messages:     []llmkit.Message{{Role: llmkit.RoleUser, Content: "Hello!"}},
 })
 ```
 
 ### Claude CLI Direct
 
 ```go
-import "github.com/randalmurphal/llmkit/claude"
+import "github.com/randalmurphal/llmkit/v2/claude"
 
 client := claude.NewClaudeCLI(
     claude.WithModel("claude-sonnet-4-20250514"),
@@ -83,19 +81,7 @@ final, _ := result.Wait(ctx)
 
 ## Internal Dependencies
 
-```
-llmkit/
-├── provider/        # Core interface, no deps
-├── claudecontract/  # CLI constants, no deps
-├── claude/          # Imports provider/, claudecontract/
-├── claudeconfig/    # Imports claudecontract/
-├── gemini/          # Imports provider/
-├── template/        # No deps
-├── tokens/          # No deps
-├── parser/          # No deps
-├── truncate/        # Imports tokens/
-└── model/           # No deps
-```
+`llmkit/` owns the shared contracts. Provider packages register themselves with the root registry. `claudeconfig/` and `codexconfig/` own provider-native ecosystem parsing. `env/` and `worktree/` are opt-in lifecycle helpers.
 
 ---
 
@@ -119,10 +105,10 @@ go test ./... -coverprofile=coverage.out
 
 ## Design Principles
 
-1. **Zero external dependencies** - Only Go stdlib
-2. **À la carte imports** - Use only what you need
-3. **Stable API** - Semver-friendly
-4. **Configuration optional** - Sensible defaults
+1. **Shared root contracts** - no duplicate cross-provider request/response/config types
+2. **Provider-native ecosystems** - Claude and Codex config surfaces stay explicit
+3. **Strict structured output** - parse failures are errors, not silent fallbacks
+4. **Opt-in side effects** - `env/` and `worktree/` never mutate projects implicitly
 
 ---
 
@@ -130,10 +116,15 @@ go test ./... -coverprofile=coverage.out
 
 | Package | Doc |
 |---------|-----|
-| `claude/` | `claude/CLAUDE.md` - Streaming events, behavioral tests |
+| root `llmkit/` | `README.md` - shared API overview |
+| `claude/` | `claude/CLAUDE.md` - streaming, sessions, behavioral tests |
+| `codex/` | `codex/doc.go` - Codex CLI usage |
 | `claudecontract/` | `claudecontract/CLAUDE.md` - CLI constants, version detection |
-| `claudeconfig/` | `claudeconfig/CLAUDE.md` - Config file parsing |
-| `model/` | `model/CLAUDE.md` - Model selection, cost tracking |
+| `codexcontract/` | `codexcontract/doc.go` - Codex CLI constants and hooks |
+| `claudeconfig/` | `claudeconfig/CLAUDE.md` - Claude ecosystem parsing |
+| `codexconfig/` | `codexconfig/` - Codex ecosystem parsing |
+| `env/` | source files and tests in `env/` - scoped lifecycle helpers |
+| `worktree/` | source files and tests in `worktree/` - git worktree helpers |
 | `tokens/` | `tokens/CLAUDE.md` - Token counting |
 | `template/` | `template/CLAUDE.md` - Template rendering |
 | `parser/` | `parser/CLAUDE.md` - Response parsing |

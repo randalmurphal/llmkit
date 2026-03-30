@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0] - 2026-03-29
+
+### Added
+
+- Root-owned V2 API at `github.com/randalmurphal/llmkit/v2` with shared `Client`, `Config`, `Request`, `Response`, model selection, pricing, and strict typed structured output helpers.
+- `codexconfig/` for Codex config, hooks, instruction hierarchy, skills, plugins, custom agents, and rules.
+- `env/` for scoped hook, MCP, environment, and tempfile lifecycle management.
+- `worktree/` for git worktree creation, pruning, and optional safety hooks.
+- `providers/` convenience package for Claude and Codex registry registration.
+
+### Changed
+
+- Promoted the shared client/config/type/model surface to the repo root.
+- Reduced supported runtime providers to Claude and Codex.
+- Added strict structured-output plumbing with provider-aware schema handling.
+- Hardened Claude and Codex session management for long-running consumer usage.
+
+### Removed
+
+- `aider/`, `continue/`, `gemini/`, `local/`, and `opencode/`
+- The old public `provider/` and `model/` packages
+
 ## [1.0.0] - 2025-12-22
 
 ### Added

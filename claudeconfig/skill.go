@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/randalmurphal/llmkit/claudecontract"
+	"github.com/randalmurphal/llmkit/v2/claudecontract"
 	"gopkg.in/yaml.v3"
 )
 

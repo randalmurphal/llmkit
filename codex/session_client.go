@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/randalmurphal/llmkit/codex/session"
+	"github.com/randalmurphal/llmkit/v2/codex/session"
 )
 
 // SessionClient wraps a session.Session to provide a simpler request/response interface.

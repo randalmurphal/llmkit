@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/randalmurphal/llmkit/codexcontract"
+	"github.com/randalmurphal/llmkit/v2/codexcontract"
 )
 
 // =============================================================================
@@ -196,9 +196,9 @@ func TestNormalizeEventType(t *testing.T) {
 		{"item/updated", "item.updated"},
 		{"thread/started", "thread.started"},
 		{"turn/diff/updated", "turn.diff.updated"},
-		{"turn.started", "turn.started"},   // Already dotted
-		{"error", "error"},                 // No separator
-		{"", ""},                           // Empty
+		{"turn.started", "turn.started"}, // Already dotted
+		{"error", "error"},               // No separator
+		{"", ""},                         // Empty
 	}
 
 	for _, tt := range tests {

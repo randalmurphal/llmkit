@@ -5,24 +5,19 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/randalmurphal/llmkit/claudeconfig"
-	"github.com/randalmurphal/llmkit/provider"
+	"github.com/randalmurphal/llmkit/v2"
 )
 
 func init() {
-	provider.Register("claude", newFromProviderConfig)
+	llmkit.Register("claude", newFromProviderConfig)
 }
 
-// newFromProviderConfig creates a ClaudeCLI from a provider.Config.
-// This is the factory function registered with the provider registry.
-func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
+func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
-	opts := make([]ClaudeOption, 0, 16)
-
-	// Map common config fields
+	opts := make([]ClaudeOption, 0, 10)
 	if cfg.Model != "" {
 		opts = append(opts, WithModel(cfg.Model))
 	}
@@ -54,135 +49,29 @@ func newFromProviderConfig(cfg provider.Config) (provider.Client, error) {
 		opts = append(opts, WithEnv(cfg.Env))
 	}
 
-	// Map Claude-specific options from Options map
-	if cfg.Options != nil {
-		// Permission mode
-		if pm := cfg.GetStringOption("permission_mode", ""); pm != "" {
-			opts = append(opts, WithPermissionMode(PermissionMode(pm)))
-		}
-
-		// Skip permissions (boolean)
-		if cfg.GetBoolOption("skip_permissions", false) {
-			opts = append(opts, WithDangerouslySkipPermissions())
-		}
-
-		// Session ID
-		if sid := cfg.GetStringOption("session_id", ""); sid != "" {
-			opts = append(opts, WithSessionID(sid))
-		}
-
-		// Home directory (for containers)
-		if hd := cfg.GetStringOption("home_dir", ""); hd != "" {
-			opts = append(opts, WithHomeDir(hd))
-		}
-
-		// Config directory
-		if cd := cfg.GetStringOption("config_dir", ""); cd != "" {
-			opts = append(opts, WithConfigDir(cd))
-		}
-
-		// Output format
-		if of := cfg.GetStringOption("output_format", ""); of != "" {
-			opts = append(opts, WithOutputFormat(OutputFormat(of)))
-		}
-
-		// Claude binary path
-		if cp := cfg.GetStringOption("claude_path", ""); cp != "" {
-			opts = append(opts, WithClaudePath(cp))
-		}
-
-		// Continue session
-		if cfg.GetBoolOption("continue", false) {
-			opts = append(opts, WithContinue())
-		}
-
-		// Resume session
-		if rs := cfg.GetStringOption("resume", ""); rs != "" {
-			opts = append(opts, WithResume(rs))
-		}
-
-		// No session persistence
-		if cfg.GetBoolOption("no_session_persistence", false) {
-			opts = append(opts, WithNoSessionPersistence())
-		}
-
-		// JSON schema for structured output
-		if js := cfg.GetStringOption("json_schema", ""); js != "" {
-			opts = append(opts, WithJSONSchema(js))
-		}
-
-		// Exact tool set (different from allowed tools whitelist)
-		if tools := cfg.GetStringSliceOption("tools"); len(tools) > 0 {
-			opts = append(opts, WithTools(tools))
-		}
-
-		// Setting sources (project, local, user)
-		if sources := cfg.GetStringSliceOption("setting_sources"); len(sources) > 0 {
-			opts = append(opts, WithSettingSources(sources))
-		}
-
-		// Additional directories for file access
-		if addDirs := cfg.GetStringSliceOption("add_dirs"); len(addDirs) > 0 {
-			opts = append(opts, WithAddDirs(addDirs))
-		}
-
-		// Append to system prompt (without replacing)
-		if asp := cfg.GetStringOption("append_system_prompt", ""); asp != "" {
-			opts = append(opts, WithAppendSystemPrompt(asp))
-		}
-
-		// MCP config file paths (in addition to inline servers)
-		if mcpConfigs := cfg.GetStringSliceOption("mcp_config_paths"); len(mcpConfigs) > 0 {
-			for _, pathOrJSON := range mcpConfigs {
-				opts = append(opts, WithMCPConfig(pathOrJSON))
-			}
-		} else if mcpConfig := cfg.GetStringOption("mcp_config", ""); mcpConfig != "" {
-			opts = append(opts, WithMCPConfig(mcpConfig))
-		}
-	}
-
-	// Handle MCP configuration
-	if cfg.MCP != nil && len(cfg.MCP.MCPServers) > 0 {
-		mcpServers := convertMCPConfig(cfg.MCP)
-		if len(mcpServers) > 0 {
-			opts = append(opts, WithMCPServers(mcpServers))
-		}
-	}
-
-	// Handle StrictMCPConfig option
-	if cfg.GetBoolOption("strict_mcp_config", false) {
-		opts = append(opts, WithStrictMCPConfig())
-	}
-
-	return &claudeProviderAdapter{
-		cli: NewClaudeCLI(opts...),
-	}, nil
+	return &claudeProviderAdapter{cli: NewClaudeCLI(opts...)}, nil
 }
 
-// claudeProviderAdapter wraps ClaudeCLI to implement provider.Client.
-// This adapter converts between claude package types and provider package types.
 type claudeProviderAdapter struct {
 	cli *ClaudeCLI
 }
 
-// Complete implements provider.Client.
-func (a *claudeProviderAdapter) Complete(ctx context.Context, req provider.Request) (*provider.Response, error) {
-	// Convert provider.Request to claude.CompletionRequest
+func (a *claudeProviderAdapter) Complete(ctx context.Context, req llmkit.Request) (*llmkit.Response, error) {
 	claudeReq := CompletionRequest{
 		SystemPrompt: req.SystemPrompt,
 		Model:        req.Model,
 		MaxTokens:    req.MaxTokens,
 		Temperature:  req.Temperature,
-		Options:      req.Options,
+	}
+	if len(req.JSONSchema) > 0 {
+		claudeReq.JSONSchema = string(req.JSONSchema)
 	}
 
-	// Convert messages (including multimodal content)
 	claudeReq.Messages = make([]Message, len(req.Messages))
 	for i, m := range req.Messages {
 		claudeReq.Messages[i] = convertMessageToClaude(m)
 	}
 
-	// Convert tools
 	if len(req.Tools) > 0 {
 		claudeReq.Tools = make([]Tool, len(req.Tools))
 		for i, t := range req.Tools {
@@ -194,34 +83,29 @@ func (a *claudeProviderAdapter) Complete(ctx context.Context, req provider.Reque
 		}
 	}
 
-	// Call underlying implementation
 	resp, err := a.cli.Complete(ctx, claudeReq)
 	if err != nil {
 		return nil, err
 	}
-
-	// Convert response
 	return a.convertResponse(resp), nil
 }
 
-// Stream implements provider.Client.
-func (a *claudeProviderAdapter) Stream(ctx context.Context, req provider.Request) (<-chan provider.StreamChunk, error) {
-	// Convert provider.Request to claude.CompletionRequest
+func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (<-chan llmkit.StreamChunk, error) {
 	claudeReq := CompletionRequest{
 		SystemPrompt: req.SystemPrompt,
 		Model:        req.Model,
 		MaxTokens:    req.MaxTokens,
 		Temperature:  req.Temperature,
-		Options:      req.Options,
+	}
+	if len(req.JSONSchema) > 0 {
+		claudeReq.JSONSchema = string(req.JSONSchema)
 	}
 
-	// Convert messages (including multimodal content)
 	claudeReq.Messages = make([]Message, len(req.Messages))
 	for i, m := range req.Messages {
 		claudeReq.Messages[i] = convertMessageToClaude(m)
 	}
 
-	// Convert tools
 	if len(req.Tools) > 0 {
 		claudeReq.Tools = make([]Tool, len(req.Tools))
 		for i, t := range req.Tools {
@@ -233,109 +117,86 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req provider.Request
 		}
 	}
 
-	// Call underlying StreamJSON implementation
 	events, result, err := a.cli.StreamJSON(ctx, claudeReq)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert stream events to provider chunks
-	providerStream := make(chan provider.StreamChunk)
+	out := make(chan llmkit.StreamChunk)
 	go func() {
-		defer close(providerStream)
+		defer close(out)
 
-		var totalUsage provider.TokenUsage
+		var totalUsage llmkit.TokenUsage
 
 		for event := range events {
 			if event.Error != nil {
-				providerStream <- provider.StreamChunk{Error: event.Error}
+				out <- llmkit.StreamChunk{Error: event.Error}
 				return
 			}
 
-			if event.Type == StreamEventAssistant && event.Assistant != nil {
-				// Emit text content
-				if event.Assistant.Text != "" {
-					providerStream <- provider.StreamChunk{Content: event.Assistant.Text}
-				}
-
-				// Convert tool calls from content blocks
-				var toolCalls []provider.ToolCall
-				for _, block := range event.Assistant.Content {
-					if block.Type == "tool_use" {
-						toolCalls = append(toolCalls, provider.ToolCall{
-							ID:        block.ID,
-							Name:      block.Name,
-							Arguments: block.Input,
-						})
-					}
-				}
-				if len(toolCalls) > 0 {
-					providerStream <- provider.StreamChunk{ToolCalls: toolCalls}
-				}
-
-				// Accumulate usage
-				totalUsage.InputTokens += event.Assistant.Usage.InputTokens
-				totalUsage.OutputTokens += event.Assistant.Usage.OutputTokens
-				totalUsage.CacheCreationInputTokens += event.Assistant.Usage.CacheCreationInputTokens
-				totalUsage.CacheReadInputTokens += event.Assistant.Usage.CacheReadInputTokens
+			if event.Type != StreamEventAssistant || event.Assistant == nil {
+				continue
 			}
+
+			if event.Assistant.Text != "" {
+				out <- llmkit.StreamChunk{Content: event.Assistant.Text}
+			}
+
+			var toolCalls []llmkit.ToolCall
+			for _, block := range event.Assistant.Content {
+				if block.Type == "tool_use" {
+					toolCalls = append(toolCalls, llmkit.ToolCall{
+						ID:        block.ID,
+						Name:      block.Name,
+						Arguments: block.Input,
+					})
+				}
+			}
+			if len(toolCalls) > 0 {
+				out <- llmkit.StreamChunk{ToolCalls: toolCalls}
+			}
+
+			totalUsage.InputTokens += event.Assistant.Usage.InputTokens
+			totalUsage.OutputTokens += event.Assistant.Usage.OutputTokens
+			totalUsage.CacheCreationInputTokens += event.Assistant.Usage.CacheCreationInputTokens
+			totalUsage.CacheReadInputTokens += event.Assistant.Usage.CacheReadInputTokens
 		}
 
-		// Wait for final result and emit done chunk with usage
 		final, err := result.Wait(ctx)
 		if err != nil {
-			providerStream <- provider.StreamChunk{Error: err, Done: true}
+			out <- llmkit.StreamChunk{Error: err, Done: true}
 			return
 		}
 
 		totalUsage.TotalTokens = totalUsage.InputTokens + totalUsage.OutputTokens
-		providerStream <- provider.StreamChunk{
-			Done:  true,
-			Usage: &totalUsage,
-		}
+		out <- llmkit.StreamChunk{Done: true, Usage: &totalUsage}
 
-		// Handle error result
 		if final.IsError {
-			providerStream <- provider.StreamChunk{
-				Error: fmt.Errorf("streaming failed: %s", final.Result),
-			}
+			out <- llmkit.StreamChunk{Error: fmt.Errorf("streaming failed: %s", final.Result)}
 		}
 	}()
 
-	return providerStream, nil
+	return out, nil
 }
 
-// Provider implements provider.Client.
 func (a *claudeProviderAdapter) Provider() string {
 	return "claude"
 }
 
-// Capabilities implements provider.Client.
-func (a *claudeProviderAdapter) Capabilities() provider.Capabilities {
-	caps := a.cli.Capabilities()
-	return provider.Capabilities{
-		Streaming:   caps.Streaming,
-		Tools:       caps.Tools,
-		MCP:         caps.MCP,
-		Sessions:    caps.Sessions,
-		Images:      caps.Images,
-		NativeTools: caps.NativeTools,
-		ContextFile: caps.ContextFile,
-	}
+func (a *claudeProviderAdapter) Capabilities() llmkit.Capabilities {
+	return llmkit.ClaudeCapabilities
 }
 
-// Close implements provider.Client.
 func (a *claudeProviderAdapter) Close() error {
 	return a.cli.Close()
 }
 
-// convertResponse converts claude.CompletionResponse to provider.Response.
-func (a *claudeProviderAdapter) convertResponse(resp *CompletionResponse) *provider.Response {
+func (a *claudeProviderAdapter) convertResponse(resp *CompletionResponse) *llmkit.Response {
 	if resp == nil {
 		return nil
 	}
 
-	providerResp := &provider.Response{
+	out := &llmkit.Response{
 		Content:      resp.Content,
 		Model:        resp.Model,
 		FinishReason: resp.FinishReason,
@@ -343,7 +204,7 @@ func (a *claudeProviderAdapter) convertResponse(resp *CompletionResponse) *provi
 		SessionID:    resp.SessionID,
 		CostUSD:      resp.CostUSD,
 		NumTurns:     resp.NumTurns,
-		Usage: provider.TokenUsage{
+		Usage: llmkit.TokenUsage{
 			InputTokens:              resp.Usage.InputTokens,
 			OutputTokens:             resp.Usage.OutputTokens,
 			TotalTokens:              resp.Usage.TotalTokens,
@@ -352,11 +213,10 @@ func (a *claudeProviderAdapter) convertResponse(resp *CompletionResponse) *provi
 		},
 	}
 
-	// Convert tool calls
 	if len(resp.ToolCalls) > 0 {
-		providerResp.ToolCalls = make([]provider.ToolCall, len(resp.ToolCalls))
+		out.ToolCalls = make([]llmkit.ToolCall, len(resp.ToolCalls))
 		for i, tc := range resp.ToolCalls {
-			providerResp.ToolCalls[i] = provider.ToolCall{
+			out.ToolCalls[i] = llmkit.ToolCall{
 				ID:        tc.ID,
 				Name:      tc.Name,
 				Arguments: tc.Arguments,
@@ -364,45 +224,16 @@ func (a *claudeProviderAdapter) convertResponse(resp *CompletionResponse) *provi
 		}
 	}
 
-	return providerResp
+	return out
 }
 
-// convertMCPConfig converts claudeconfig.MCPConfig to claude.MCPServerConfig map.
-// Handles all transport types (stdio, http, sse) and skips disabled servers.
-func convertMCPConfig(mcp *claudeconfig.MCPConfig) map[string]MCPServerConfig {
-	if mcp == nil || len(mcp.MCPServers) == 0 {
-		return nil
-	}
-
-	mcpServers := make(map[string]MCPServerConfig, len(mcp.MCPServers))
-	for name, server := range mcp.MCPServers {
-		if server == nil || server.Disabled {
-			continue
-		}
-		mcpServers[name] = MCPServerConfig{
-			Type:    server.Type,
-			Command: server.Command,
-			Args:    server.Args,
-			Env:     server.Env,
-			URL:     server.URL,
-			Headers: server.Headers,
-		}
-	}
-	return mcpServers
-}
-
-// convertMessageToClaude converts a provider.Message to claude.Message.
-// Handles multimodal content by including image file paths in the content.
-func convertMessageToClaude(m provider.Message) Message {
+func convertMessageToClaude(m llmkit.Message) Message {
 	msg := Message{
 		Role: Role(m.Role),
 		Name: m.Name,
 	}
 
-	// Handle multimodal content
 	if m.IsMultimodal() {
-		// Claude CLI can read images via file paths
-		// For multimodal messages, we need to format the content appropriately
 		var parts []string
 		var imagePaths []string
 
@@ -413,31 +244,20 @@ func convertMessageToClaude(m provider.Message) Message {
 					parts = append(parts, part.Text)
 				}
 			case "image":
-				// Claude CLI supports images via file paths
 				if part.FilePath != "" {
 					imagePaths = append(imagePaths, part.FilePath)
 				}
-				// Note: ImageURL and ImageBase64 would need to be downloaded/saved
-				// to temp files for Claude CLI to read them. For now, we skip them
-				// and let the caller handle temp file creation if needed.
 			case "file":
 				if part.FilePath != "" {
-					// For file references, include as context
 					parts = append(parts, "[File: "+part.FilePath+"]")
 				}
 			}
 		}
 
-		// Combine text content
 		if len(parts) > 0 {
 			msg.Content = strings.Join(parts, "\n")
 		}
-
-		// If we have image paths, add them to Options for the CLI to handle
-		// This allows the CLI wrapper to pass them via appropriate flags
 		if len(imagePaths) > 0 && msg.Content != "" {
-			// For now, include image references in the content
-			// The Claude CLI reads images from the filesystem via the Read tool
 			for _, path := range imagePaths {
 				msg.Content += "\n[Image: " + path + "]"
 			}

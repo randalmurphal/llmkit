@@ -12,6 +12,7 @@
 ```bash
 git clone https://github.com/randalmurphal/llmkit.git
 cd llmkit
+go test ./...
 make verify  # Run all checks
 ```
 
@@ -35,12 +36,24 @@ make verify    # Run all checks
 
 | Package | Purpose |
 |---------|---------|
-| `claude/` | Claude CLI wrapper and client interface |
+| root `llmkit/` | Shared client/config/types/registry/model helpers |
+| `claude/` | Claude CLI wrapper and sessions |
+| `codex/` | Codex CLI wrapper and sessions |
+| `claudeconfig/` | Claude ecosystem parsing |
+| `codexconfig/` | Codex ecosystem parsing |
+| `env/` | Scoped hook/MCP/env lifecycle |
+| `worktree/` | Git worktree lifecycle |
+| `providers/` | Blank-import convenience package for registry registration |
 | `tokens/` | Token counting and budget management |
 | `template/` | Prompt template rendering |
 | `parser/` | LLM response parsing |
 | `truncate/` | Token-aware text truncation |
-| `model/` | Model selection and cost tracking |
+
+### Versioning
+
+- The repository is `github.com/randalmurphal/llmkit`
+- The V2 Go module path is `github.com/randalmurphal/llmkit/v2`
+- V1 maintenance fixes can continue landing on `main`, but all V2 code and docs must use `/v2` imports
 
 ### Testing
 

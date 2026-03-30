@@ -22,7 +22,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/randalmurphal/llmkit/claude/session"
+	"github.com/randalmurphal/llmkit/v2/claude/session"
 )
 
 // Reader reads JSONL session files from Claude Code.
@@ -295,18 +295,18 @@ func FindSessionFiles(projectsDir string) ([]string, error) {
 
 // Summary contains aggregate statistics from a JSONL session file.
 type Summary struct {
-	SessionID    string
-	MessageCount int
-	UserMessages int
-	AssistantMessages int
-	TotalInputTokens  int
-	TotalOutputTokens int
+	SessionID                string
+	MessageCount             int
+	UserMessages             int
+	AssistantMessages        int
+	TotalInputTokens         int
+	TotalOutputTokens        int
 	TotalCacheCreationTokens int
-	TotalCacheReadTokens int
-	Models       map[string]int // Model name -> message count
-	ToolCalls    int
-	FirstTimestamp string
-	LastTimestamp  string
+	TotalCacheReadTokens     int
+	Models                   map[string]int // Model name -> message count
+	ToolCalls                int
+	FirstTimestamp           string
+	LastTimestamp            string
 }
 
 // Summarize reads a JSONL file and returns aggregate statistics.

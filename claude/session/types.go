@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/randalmurphal/llmkit/claudecontract"
+	"github.com/randalmurphal/llmkit/v2/claudecontract"
 )
 
 // SessionStatus represents the current state of a session.
@@ -291,13 +291,13 @@ func (m *OutputMessage) GetText() string {
 // JSONLMessage represents a single line in Claude Code's session JSONL file.
 // The file contains a sequence of these messages representing the full session history.
 type JSONLMessage struct {
-	Type       string              `json:"type"`                 // "user", "assistant", "queue-operation"
-	Timestamp  string              `json:"timestamp"`            // ISO 8601 format
-	SessionID  string              `json:"sessionId"`            // Session identifier (UUID)
-	UUID       string              `json:"uuid"`                 // Unique message identifier
-	ParentUUID *string             `json:"parentUuid,omitempty"` // Links to parent message (threading)
-	Message    *JSONLMessageBody   `json:"message,omitempty"`    // Present for user/assistant types
-	ToolResult *JSONLToolResult    `json:"toolUseResult,omitempty"` // Present when message contains tool results
+	Type       string            `json:"type"`                    // "user", "assistant", "queue-operation"
+	Timestamp  string            `json:"timestamp"`               // ISO 8601 format
+	SessionID  string            `json:"sessionId"`               // Session identifier (UUID)
+	UUID       string            `json:"uuid"`                    // Unique message identifier
+	ParentUUID *string           `json:"parentUuid,omitempty"`    // Links to parent message (threading)
+	Message    *JSONLMessageBody `json:"message,omitempty"`       // Present for user/assistant types
+	ToolResult *JSONLToolResult  `json:"toolUseResult,omitempty"` // Present when message contains tool results
 
 	// Raw JSON for advanced parsing
 	Raw json.RawMessage `json:"-"`
@@ -305,10 +305,10 @@ type JSONLMessage struct {
 
 // JSONLMessageBody contains the actual message content in a JSONL entry.
 type JSONLMessageBody struct {
-	Role    string          `json:"role"`              // "user" or "assistant"
-	Content json.RawMessage `json:"content"`           // Array of content blocks (text, tool_use, tool_result)
-	Model   string          `json:"model,omitempty"`   // Model used (assistant messages only)
-	Usage   *JSONLUsage     `json:"usage,omitempty"`   // Token usage (assistant messages only)
+	Role    string          `json:"role"`            // "user" or "assistant"
+	Content json.RawMessage `json:"content"`         // Array of content blocks (text, tool_use, tool_result)
+	Model   string          `json:"model,omitempty"` // Model used (assistant messages only)
+	Usage   *JSONLUsage     `json:"usage,omitempty"` // Token usage (assistant messages only)
 }
 
 // JSONLUsage contains per-message token usage from JSONL files.
@@ -332,9 +332,9 @@ type JSONLToolResult struct {
 // TodoItem represents a single item from Claude's TodoWrite tool.
 // These are extracted from JSONL files for progress tracking during execution.
 type TodoItem struct {
-	Content    string `json:"content"`     // Task description (imperative form)
-	Status     string `json:"status"`      // "pending", "in_progress", "completed"
-	ActiveForm string `json:"activeForm"`  // Present continuous form shown during execution
+	Content    string `json:"content"`    // Task description (imperative form)
+	Status     string `json:"status"`     // "pending", "in_progress", "completed"
+	ActiveForm string `json:"activeForm"` // Present continuous form shown during execution
 }
 
 // JSONLContentBlock represents a content block in JSONL message content.

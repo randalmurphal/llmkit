@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/randalmurphal/llmkit/claudecontract"
+	"github.com/randalmurphal/llmkit/v2/claudecontract"
 )
 
 // Script errors
@@ -24,10 +24,10 @@ var (
 // Scripts are registered so agents know what tools are available in the project.
 type ProjectScript struct {
 	Name        string `json:"name"`
-	Path        string `json:"path"`                  // Relative path from project root
-	Description string `json:"description"`           // What the script does
-	Language    string `json:"language,omitempty"`    // python, bash, go, etc.
-	Executable  bool   `json:"executable,omitempty"`  // Whether the script is executable
+	Path        string `json:"path"`                 // Relative path from project root
+	Description string `json:"description"`          // What the script does
+	Language    string `json:"language,omitempty"`   // python, bash, go, etc.
+	Executable  bool   `json:"executable,omitempty"` // Whether the script is executable
 }
 
 // Validate checks that the script has required fields.

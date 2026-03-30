@@ -6,14 +6,14 @@ import (
 )
 
 func TestHookEventValidity(t *testing.T) {
-	valid := []HookEvent{HookSessionStart, HookUserPromptSubmit, HookStop}
+	valid := []HookEvent{HookSessionStart, HookPreToolUse, HookPostToolUse, HookUserPromptSubmit, HookStop}
 	for _, e := range valid {
 		if !e.IsValid() {
 			t.Errorf("HookEvent %q should be valid", e)
 		}
 	}
 
-	invalid := HookEvent("PreToolUse")
+	invalid := HookEvent("Unknown")
 	if invalid.IsValid() {
 		t.Errorf("HookEvent %q should not be valid for Codex", invalid)
 	}
@@ -21,8 +21,8 @@ func TestHookEventValidity(t *testing.T) {
 
 func TestValidHookEvents(t *testing.T) {
 	events := ValidHookEvents()
-	if len(events) != 3 {
-		t.Errorf("ValidHookEvents() returned %d events, want 3", len(events))
+	if len(events) != 5 {
+		t.Errorf("ValidHookEvents() returned %d events, want 5", len(events))
 	}
 }
 
@@ -98,12 +98,14 @@ func TestHookConfig_JSONRoundTrip(t *testing.T) {
 
 func TestStopInput_JSONRoundTrip(t *testing.T) {
 	input := StopInput{
-		SessionID:            "sess-123",
-		TurnID:               "turn-456",
-		CWD:                  "/home/user/project",
-		HookEventName:        "Stop",
-		Model:                "gpt-5-codex",
-		PermissionMode:       "dontAsk",
+		HookContext: HookContext{
+			SessionID:      "sess-123",
+			TurnID:         "turn-456",
+			CWD:            "/home/user/project",
+			HookEventName:  "Stop",
+			Model:          "gpt-5-codex",
+			PermissionMode: "dontAsk",
+		},
 		StopHookActive:       true,
 		LastAssistantMessage: "I've completed the task.",
 	}
@@ -202,13 +204,15 @@ func TestHookOutput_NilContinueDefaultsSafe(t *testing.T) {
 
 func TestUserPromptSubmitInput_JSONRoundTrip(t *testing.T) {
 	input := UserPromptSubmitInput{
-		SessionID:      "sess-123",
-		TurnID:         "turn-789",
-		CWD:            "/project",
-		HookEventName:  "UserPromptSubmit",
-		Model:          "gpt-5-codex",
-		PermissionMode: "default",
-		Prompt:         "Fix the tests",
+		HookContext: HookContext{
+			SessionID:      "sess-123",
+			TurnID:         "turn-789",
+			CWD:            "/project",
+			HookEventName:  "UserPromptSubmit",
+			Model:          "gpt-5-codex",
+			PermissionMode: "default",
+		},
+		Prompt: "Fix the tests",
 	}
 
 	data, err := json.Marshal(input)
@@ -226,6 +230,35 @@ func TestUserPromptSubmitInput_JSONRoundTrip(t *testing.T) {
 	}
 	if roundTripped.TurnID != input.TurnID {
 		t.Errorf("TurnID = %q, want %q", roundTripped.TurnID, input.TurnID)
+	}
+}
+
+func TestToolHookInput_JSONRoundTrip(t *testing.T) {
+	input := ToolHookInput{
+		HookContext: HookContext{
+			SessionID:     "sess-123",
+			TurnID:        "turn-1",
+			HookEventName: "PreToolUse",
+		},
+		ToolName:  "shell",
+		ToolInput: json.RawMessage(`{"cmd":"pwd"}`),
+	}
+
+	data, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var roundTripped ToolHookInput
+	if err := json.Unmarshal(data, &roundTripped); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if roundTripped.ToolName != "shell" {
+		t.Fatalf("ToolName = %q", roundTripped.ToolName)
+	}
+	if string(roundTripped.ToolInput) != `{"cmd":"pwd"}` {
+		t.Fatalf("ToolInput = %s", roundTripped.ToolInput)
 	}
 }
 
