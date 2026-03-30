@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -201,6 +202,32 @@ func TestBuildExecArgs_SearchModes(t *testing.T) {
 	})
 }
 
+func TestBuildArgsWithCleanup_JSONSchemaWritesNormalizedTempFile(t *testing.T) {
+	client := NewCodexCLI()
+	args, cleanup, err := client.buildArgsWithCleanup(CompletionRequest{
+		Messages:   []Message{{Role: RoleUser, Content: "hello"}},
+		JSONSchema: json.RawMessage(`{"type":"object","properties":{"status":{"type":"string"}}}`),
+	})
+	if err != nil {
+		t.Fatalf("buildArgsWithCleanup() error = %v", err)
+	}
+	defer cleanup()
+
+	schemaPath := argValue(args, "--output-schema")
+	if schemaPath == "" {
+		t.Fatalf("expected --output-schema in args: %v", args)
+	}
+
+	data, readErr := os.ReadFile(schemaPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(%q) error = %v", schemaPath, readErr)
+	}
+	want := `{"additionalProperties":false,"properties":{"status":{"type":["string","null"]}},"required":["status"],"type":"object"}` + "\n"
+	if string(data) != want {
+		t.Fatalf("schema file content = %q, want %q", string(data), want)
+	}
+}
+
 func TestParseEventLine_ModernHeadlessEvents(t *testing.T) {
 	e1, err := parseEventLine([]byte(`{"type":"thread.started","thread_id":"thr_123"}`))
 	if err != nil {
@@ -334,4 +361,13 @@ func requireConfigOverride(t *testing.T, args []string, expected string) {
 		}
 	}
 	t.Fatalf("expected config override -c %s in %v", expected, args)
+}
+
+func argValue(args []string, key string) string {
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == key {
+			return args[i+1]
+		}
+	}
+	return ""
 }

@@ -3,7 +3,6 @@ package codex
 import (
 	"context"
 	"encoding/json"
-	"os"
 
 	"github.com/randalmurphal/llmkit/v2"
 )
@@ -80,17 +79,8 @@ func (a *codexProviderAdapter) Complete(ctx context.Context, req llmkit.Request)
 		Model:        req.Model,
 		MaxTokens:    req.MaxTokens,
 		Temperature:  req.Temperature,
+		JSONSchema:   req.JSONSchema,
 	}
-	cleanup := func() {}
-	if len(req.JSONSchema) > 0 {
-		path, err := writeSchemaFile(req.JSONSchema)
-		if err != nil {
-			return nil, err
-		}
-		codexReq.OutputSchemaPath = path
-		cleanup = func() { _ = os.Remove(path) }
-	}
-	defer cleanup()
 
 	codexReq.Messages = make([]Message, len(req.Messages))
 	for i, m := range req.Messages {
@@ -126,15 +116,7 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 		Model:        req.Model,
 		MaxTokens:    req.MaxTokens,
 		Temperature:  req.Temperature,
-	}
-	schemaPath := ""
-	if len(req.JSONSchema) > 0 {
-		path, err := writeSchemaFile(req.JSONSchema)
-		if err != nil {
-			return nil, err
-		}
-		codexReq.OutputSchemaPath = path
-		schemaPath = path
+		JSONSchema:   req.JSONSchema,
 	}
 
 	codexReq.Messages = make([]Message, len(req.Messages))
@@ -159,18 +141,12 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 
 	codexStream, err := a.cli.Stream(ctx, codexReq)
 	if err != nil {
-		if schemaPath != "" {
-			_ = os.Remove(schemaPath)
-		}
 		return nil, err
 	}
 
 	out := make(chan llmkit.StreamChunk)
 	go func() {
 		defer close(out)
-		if schemaPath != "" {
-			defer func() { _ = os.Remove(schemaPath) }()
-		}
 		for chunk := range codexStream {
 			converted := llmkit.StreamChunk{
 				Type:         "assistant",

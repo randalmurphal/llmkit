@@ -406,6 +406,9 @@ func (c *CodexCLI) Complete(ctx context.Context, req CompletionRequest) (*Comple
 	}
 
 	resp := acc.ToResponse(time.Since(start))
+	if c.requestUsesStructuredOutput(req) {
+		resp.Content = extractLastJSONValue(resp.Content)
+	}
 	return resp, nil
 }
 
@@ -413,7 +416,11 @@ func (c *CodexCLI) Complete(ctx context.Context, req CompletionRequest) (*Comple
 func (c *CodexCLI) Stream(ctx context.Context, req CompletionRequest) (<-chan StreamChunk, error) {
 	ctx, cancel := c.withTimeoutContext(ctx)
 
-	args, cleanup := c.buildArgsWithCleanup(req)
+	args, cleanup, err := c.buildArgsWithCleanup(req)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	cmd := exec.CommandContext(ctx, c.resolvedPath(), args...)
 	c.setupCmd(cmd)
 	cmd.Stdin = nil
@@ -572,10 +579,23 @@ func sendChunk(ctx context.Context, ch chan<- StreamChunk, chunk StreamChunk) bo
 }
 
 // buildArgsWithCleanup constructs CLI arguments and returns a cleanup function.
-func (c *CodexCLI) buildArgsWithCleanup(req CompletionRequest) ([]string, func()) {
-	args := c.buildExecArgs(req)
+func (c *CodexCLI) buildArgsWithCleanup(req CompletionRequest) ([]string, func(), error) {
 	cleanup := func() {}
-	return args, cleanup
+	if len(req.JSONSchema) > 0 {
+		path, err := writeSchemaFile(req.JSONSchema)
+		if err != nil {
+			return nil, cleanup, fmt.Errorf("write output schema: %w", err)
+		}
+		req.OutputSchemaPath = path
+		cleanup = func() { _ = os.Remove(path) }
+	}
+
+	args := c.buildExecArgs(req)
+	return args, cleanup, nil
+}
+
+func (c *CodexCLI) requestUsesStructuredOutput(req CompletionRequest) bool {
+	return len(req.JSONSchema) > 0 || req.OutputSchemaPath != "" || c.outputSchemaPath != ""
 }
 
 func (c *CodexCLI) buildExecArgs(req CompletionRequest) []string {

@@ -2,7 +2,10 @@ package codex_test
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -263,6 +266,29 @@ func TestCodexCLI_Stream_NonExistentBinary(t *testing.T) {
 	})
 
 	assert.Error(t, err)
+}
+
+func TestCodexCLI_Complete_NormalizesStructuredOutputToLastJSONValue(t *testing.T) {
+	tmpDir := t.TempDir()
+	scriptPath := filepath.Join(tmpDir, "fake-codex.sh")
+	script := `#!/bin/sh
+printf '%s\n' '{"type":"turn.completed","thread_id":"thr-123","usage":{"input_tokens":1,"output_tokens":1},"output":[{"type":"message","content":[{"type":"output_text","text":"{\"round\":1}{\"round\":2}"}]}]}'
+`
+	require.NoError(t, os.WriteFile(scriptPath, []byte(script), 0o755))
+
+	client := codex.NewCodexCLI(
+		codex.WithCodexPath(scriptPath),
+		codex.WithWorkdir(tmpDir),
+	)
+
+	resp, err := client.Complete(context.Background(), codex.CompletionRequest{
+		Messages:   []codex.Message{{Role: codex.RoleUser, Content: "test"}},
+		JSONSchema: json.RawMessage(`{"type":"object","properties":{"round":{"type":"integer"}}}`),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, `{"round":2}`, resp.Content)
+	assert.Equal(t, "thr-123", resp.SessionID)
 }
 
 func TestCodexCLI_IntegrationSkip(t *testing.T) {

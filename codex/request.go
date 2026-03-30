@@ -32,6 +32,10 @@ type CompletionRequest struct {
 	// Options: "cached", "live", "disabled"
 	WebSearchMode WebSearchMode `json:"web_search_mode,omitempty"`
 
+	// JSONSchema requests structured output matching the given schema.
+	// The Codex client owns normalization and temporary file management for this.
+	JSONSchema json.RawMessage `json:"json_schema,omitempty"`
+
 	// OutputSchemaPath overrides the client-level --output-schema path.
 	OutputSchemaPath string `json:"output_schema_path,omitempty"`
 
