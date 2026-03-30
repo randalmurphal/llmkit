@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,6 +11,30 @@ import (
 
 func init() {
 	llmkit.Register("claude", newFromProviderConfig)
+	llmkit.RegisterProviderDefinition(llmkit.ProviderDefinition{
+		Name:      "claude",
+		Supported: true,
+		Shared: llmkit.SharedSupport{
+			SystemPrompt:       true,
+			AppendSystemPrompt: true,
+			AllowedTools:       true,
+			DisallowedTools:    true,
+			Tools:              true,
+			MCPServers:         true,
+			StrictMCPConfig:    true,
+			MaxBudgetUSD:       true,
+			MaxTurns:           true,
+			Env:                true,
+			AddDirs:            true,
+		},
+		Environment: llmkit.EnvironmentSupport{
+			Hooks:        true,
+			MCP:          true,
+			Skills:       true,
+			Instructions: true,
+			CustomAgents: true,
+		},
+	})
 }
 
 func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
@@ -26,6 +51,9 @@ func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
 	}
 	if cfg.SystemPrompt != "" {
 		opts = append(opts, WithSystemPrompt(cfg.SystemPrompt))
+	}
+	if cfg.AppendSystemPrompt != "" {
+		opts = append(opts, WithAppendSystemPrompt(cfg.AppendSystemPrompt))
 	}
 	if cfg.MaxTurns > 0 {
 		opts = append(opts, WithMaxTurns(cfg.MaxTurns))
@@ -45,8 +73,34 @@ func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
 	if len(cfg.DisallowedTools) > 0 {
 		opts = append(opts, WithDisallowedTools(cfg.DisallowedTools))
 	}
+	if len(cfg.Tools) > 0 {
+		opts = append(opts, WithTools(cfg.Tools))
+	}
+	if len(cfg.MCPServers) > 0 {
+		servers := make(map[string]MCPServerConfig, len(cfg.MCPServers))
+		for name, server := range cfg.MCPServers {
+			servers[name] = MCPServerConfig{
+				Type:    server.Type,
+				Command: server.Command,
+				Args:    append([]string(nil), server.Args...),
+				Env:     cloneStringMap(server.Env),
+				URL:     server.URL,
+				Headers: mapHeadersToSlice(server.Headers),
+			}
+		}
+		opts = append(opts, WithMCPServers(servers))
+	}
+	if cfg.StrictMCPConfig {
+		opts = append(opts, WithStrictMCPConfig())
+	}
 	if len(cfg.Env) > 0 {
 		opts = append(opts, WithEnv(cfg.Env))
+	}
+	if len(cfg.AddDirs) > 0 {
+		opts = append(opts, WithAddDirs(cfg.AddDirs))
+	}
+	if sessionID := sessionIDFromMetadata(cfg.Session); sessionID != "" {
+		opts = append(opts, WithResume(sessionID))
 	}
 
 	return &claudeProviderAdapter{cli: NewClaudeCLI(opts...)}, nil
@@ -127,52 +181,124 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) 
 		defer close(out)
 
 		var totalUsage llmkit.TokenUsage
+		var session *llmkit.SessionMetadata
 
 		for event := range events {
 			if event.Error != nil {
-				out <- llmkit.StreamChunk{Error: event.Error}
+				out <- llmkit.StreamChunk{Type: "error", Error: event.Error}
 				return
 			}
 
-			if event.Type != StreamEventAssistant || event.Assistant == nil {
-				continue
-			}
+			switch event.Type {
+			case StreamEventInit:
+				session = claudeSession(event.SessionID)
+				out <- llmkit.StreamChunk{
+					Type:    "session",
+					Session: session,
+					Model:   event.Init.Model,
+					Metadata: map[string]any{
+						"cwd":                event.Init.CWD,
+						"permission_mode":    event.Init.PermissionMode,
+						"claude_code_version": event.Init.ClaudeCodeVersion,
+					},
+				}
+			case StreamEventAssistant:
+				if event.Assistant == nil {
+					continue
+				}
+				if event.Assistant.Text != "" {
+					out <- llmkit.StreamChunk{
+						Type:      "assistant",
+						Content:   event.Assistant.Text,
+						MessageID: event.Assistant.MessageID,
+						Role:      "assistant",
+						Model:     event.Assistant.Model,
+						Session:   session,
+					}
+				}
+				var toolCalls []llmkit.ToolCall
+				for _, block := range event.Assistant.Content {
+					if block.Type == "tool_use" {
+						toolCalls = append(toolCalls, llmkit.ToolCall{
+							ID:        block.ID,
+							Name:      block.Name,
+							Arguments: block.Input,
+						})
+					}
+				}
+				if len(toolCalls) > 0 {
+					out <- llmkit.StreamChunk{
+						Type:      "tool_call",
+						Role:      "assistant",
+						Model:     event.Assistant.Model,
+						Session:   session,
+						MessageID: event.Assistant.MessageID,
+						ToolCalls: toolCalls,
+					}
+				}
 
-			if event.Assistant.Text != "" {
-				out <- llmkit.StreamChunk{Content: event.Assistant.Text}
-			}
-
-			var toolCalls []llmkit.ToolCall
-			for _, block := range event.Assistant.Content {
-				if block.Type == "tool_use" {
-					toolCalls = append(toolCalls, llmkit.ToolCall{
-						ID:        block.ID,
-						Name:      block.Name,
-						Arguments: block.Input,
+				totalUsage.InputTokens += event.Assistant.Usage.InputTokens
+				totalUsage.OutputTokens += event.Assistant.Usage.OutputTokens
+				totalUsage.CacheCreationInputTokens += event.Assistant.Usage.CacheCreationInputTokens
+				totalUsage.CacheReadInputTokens += event.Assistant.Usage.CacheReadInputTokens
+			case StreamEventUser:
+				if event.User == nil {
+					continue
+				}
+				content := event.User.GetToolUseResultError()
+				var toolResults []llmkit.ToolResult
+				for _, block := range event.User.Message.Content {
+					output := block.GetContent()
+					if output != "" {
+						content = output
+					}
+					toolResults = append(toolResults, llmkit.ToolResult{
+						ID:     block.ToolUseID,
+						Name:   block.ToolUseID,
+						Output: output,
 					})
 				}
+				out <- llmkit.StreamChunk{
+					Type:        "tool_result",
+					Role:        "tool",
+					Content:     content,
+					Session:     claudeSession(event.User.SessionID),
+					ToolResults: toolResults,
+				}
+			case StreamEventHook:
+				if event.Hook == nil {
+					continue
+				}
+				out <- llmkit.StreamChunk{
+					Type:    "hook",
+					Role:    "system",
+					Session: claudeSession(event.Hook.SessionID),
+					Metadata: map[string]any{
+						"hook_name":  event.Hook.HookName,
+						"hook_event": event.Hook.HookEvent,
+						"stdout":     event.Hook.Stdout,
+						"stderr":     event.Hook.Stderr,
+						"exit_code":  event.Hook.ExitCode,
+					},
+				}
 			}
-			if len(toolCalls) > 0 {
-				out <- llmkit.StreamChunk{ToolCalls: toolCalls}
-			}
-
-			totalUsage.InputTokens += event.Assistant.Usage.InputTokens
-			totalUsage.OutputTokens += event.Assistant.Usage.OutputTokens
-			totalUsage.CacheCreationInputTokens += event.Assistant.Usage.CacheCreationInputTokens
-			totalUsage.CacheReadInputTokens += event.Assistant.Usage.CacheReadInputTokens
 		}
 
 		final, err := result.Wait(ctx)
 		if err != nil {
-			out <- llmkit.StreamChunk{Error: err, Done: true}
+			out <- llmkit.StreamChunk{Type: "error", Error: err, Done: true, Session: session}
 			return
 		}
 
-		totalUsage.TotalTokens = totalUsage.InputTokens + totalUsage.OutputTokens
-		out <- llmkit.StreamChunk{Done: true, Usage: &totalUsage}
+		totalUsage.TotalTokens = totalUsage.InputTokens + totalUsage.OutputTokens + totalUsage.CacheCreationInputTokens + totalUsage.CacheReadInputTokens
+		finalContent := final.Result
+		if len(final.StructuredOutput) > 0 {
+			finalContent = string(final.StructuredOutput)
+		}
+		out <- llmkit.StreamChunk{Type: "final", Done: true, Usage: &totalUsage, Session: claudeSession(final.SessionID), FinalContent: finalContent}
 
 		if final.IsError {
-			out <- llmkit.StreamChunk{Error: fmt.Errorf("streaming failed: %s", final.Result)}
+			out <- llmkit.StreamChunk{Type: "error", Error: fmt.Errorf("streaming failed: %s", final.Result), Session: claudeSession(final.SessionID)}
 		}
 	}()
 
@@ -201,7 +327,7 @@ func (a *claudeProviderAdapter) convertResponse(resp *CompletionResponse) *llmki
 		Model:        resp.Model,
 		FinishReason: resp.FinishReason,
 		Duration:     resp.Duration,
-		SessionID:    resp.SessionID,
+		Session:      claudeSession(resp.SessionID),
 		CostUSD:      resp.CostUSD,
 		NumTurns:     resp.NumTurns,
 		Usage: llmkit.TokenUsage{
@@ -224,6 +350,56 @@ func (a *claudeProviderAdapter) convertResponse(resp *CompletionResponse) *llmki
 		}
 	}
 
+	return out
+}
+
+func sessionIDFromMetadata(session *llmkit.SessionMetadata) string {
+	if session == nil {
+		return ""
+	}
+	var payload struct {
+		ID        string `json:"id"`
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(session.Data, &payload); err != nil {
+		return ""
+	}
+	if payload.SessionID != "" {
+		return payload.SessionID
+	}
+	return payload.ID
+}
+
+func claudeSession(sessionID string) *llmkit.SessionMetadata {
+	if sessionID == "" {
+		return nil
+	}
+	data, _ := json.Marshal(map[string]string{"session_id": sessionID})
+	return &llmkit.SessionMetadata{
+		Provider: "claude",
+		Data:     data,
+	}
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func mapHeadersToSlice(in map[string]string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for name, value := range in {
+		out = append(out, name+": "+value)
+	}
 	return out
 }
 

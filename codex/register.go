@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 
 	"github.com/randalmurphal/llmkit/v2"
@@ -9,6 +10,30 @@ import (
 
 func init() {
 	llmkit.Register("codex", newFromProviderConfig)
+	llmkit.RegisterProviderDefinition(llmkit.ProviderDefinition{
+		Name:      "codex",
+		Supported: true,
+		Shared: llmkit.SharedSupport{
+			SystemPrompt:       true,
+			AppendSystemPrompt: false,
+			AllowedTools:       false,
+			DisallowedTools:    false,
+			Tools:              false,
+			MCPServers:         true,
+			StrictMCPConfig:    false,
+			MaxBudgetUSD:       false,
+			MaxTurns:           false,
+			Env:                true,
+			AddDirs:            true,
+		},
+		Environment: llmkit.EnvironmentSupport{
+			Hooks:        true,
+			MCP:          true,
+			Skills:       true,
+			Instructions: true,
+			CustomAgents: true,
+		},
+	})
 }
 
 func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
@@ -28,6 +53,18 @@ func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
 	}
 	if len(cfg.Env) > 0 {
 		opts = append(opts, WithEnv(cfg.Env))
+	}
+	if len(cfg.AddDirs) > 0 {
+		opts = append(opts, WithAddDirs(cfg.AddDirs))
+	}
+	if cfg.ReasoningEffort != "" {
+		opts = append(opts, WithReasoningEffort(cfg.ReasoningEffort))
+	}
+	if cfg.WebSearchMode != "" {
+		opts = append(opts, WithWebSearchMode(WebSearchMode(cfg.WebSearchMode)))
+	}
+	if sessionID := sessionIDFromMetadata(cfg.Session); sessionID != "" {
+		opts = append(opts, WithSessionID(sessionID))
 	}
 
 	return &codexProviderAdapter{cli: NewCodexCLI(opts...)}, nil
@@ -136,9 +173,10 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 		}
 		for chunk := range codexStream {
 			converted := llmkit.StreamChunk{
+				Type:         "assistant",
 				Content:      chunk.Content,
 				FinalContent: chunk.FinalContent,
-				SessionID:    chunk.SessionID,
+				Session:      codexSession(chunk.SessionID),
 				Done:         chunk.Done,
 				Error:        chunk.Error,
 			}
@@ -152,6 +190,20 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 						Arguments: tc.Arguments,
 					}
 				}
+				converted.Type = "tool_call"
+			}
+			if len(chunk.ToolResults) > 0 {
+				converted.ToolResults = make([]llmkit.ToolResult, len(chunk.ToolResults))
+				for i, tr := range chunk.ToolResults {
+					converted.ToolResults[i] = llmkit.ToolResult{
+						ID:       tr.ID,
+						Name:     tr.Name,
+						Output:   tr.Output,
+						Status:   tr.Status,
+						ExitCode: tr.ExitCode,
+					}
+				}
+				converted.Type = "tool_result"
 			}
 
 			if chunk.Usage != nil {
@@ -193,7 +245,7 @@ func (a *codexProviderAdapter) convertResponse(resp *CompletionResponse) *llmkit
 		Model:        resp.Model,
 		FinishReason: resp.FinishReason,
 		Duration:     resp.Duration,
-		SessionID:    resp.SessionID,
+		Session:      codexSession(resp.SessionID),
 		CostUSD:      resp.CostUSD,
 		NumTurns:     resp.NumTurns,
 		Usage: llmkit.TokenUsage{
@@ -217,4 +269,32 @@ func (a *codexProviderAdapter) convertResponse(resp *CompletionResponse) *llmkit
 	}
 
 	return out
+}
+
+func sessionIDFromMetadata(session *llmkit.SessionMetadata) string {
+	if session == nil {
+		return ""
+	}
+	var payload struct {
+		ID        string `json:"id"`
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(session.Data, &payload); err != nil {
+		return ""
+	}
+	if payload.SessionID != "" {
+		return payload.SessionID
+	}
+	return payload.ID
+}
+
+func codexSession(sessionID string) *llmkit.SessionMetadata {
+	if sessionID == "" {
+		return nil
+	}
+	data, _ := json.Marshal(map[string]string{"session_id": sessionID})
+	return &llmkit.SessionMetadata{
+		Provider: "codex",
+		Data:     data,
+	}
 }

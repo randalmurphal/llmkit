@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/randalmurphal/llmkit/v2"
 	"github.com/randalmurphal/llmkit/v2/claudeconfig"
+	"github.com/randalmurphal/llmkit/v2/contract"
 	"github.com/randalmurphal/llmkit/v2/codexconfig"
 )
 
@@ -30,7 +30,7 @@ func TestClaudeScopeRestorePreservesManualEdits(t *testing.T) {
 				Command: "echo stop",
 			}},
 		},
-		MCPServers: map[string]llmkit.MCPServerConfig{
+		MCPServers: map[string]contract.MCPServerConfig{
 			"demo": {Command: "npx", Args: []string{"demo"}},
 		},
 		Env: map[string]string{"LLMKIT": "1"},
@@ -111,7 +111,7 @@ func TestCodexScopeRestorePreservesManualEdits(t *testing.T) {
 				Command: "echo stop",
 			}},
 		},
-		MCPServers: map[string]llmkit.MCPServerConfig{
+		MCPServers: map[string]contract.MCPServerConfig{
 			"docs": {URL: "https://example.com/mcp", Type: "http"},
 		},
 	})
@@ -209,7 +209,7 @@ func TestRecoverOrphanedScopes(t *testing.T) {
 						Command: "echo orphan",
 					}},
 				},
-				MCPServers: map[string]llmkit.MCPServerConfig{
+				MCPServers: map[string]contract.MCPServerConfig{
 					"orphan": {Command: "npx"},
 				},
 				Env: map[string]string{"LLMKIT": "1"},

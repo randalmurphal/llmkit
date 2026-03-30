@@ -3,6 +3,8 @@ package llmkit
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/randalmurphal/llmkit/v2/contract"
 )
 
 // Request configures a provider-agnostic completion call using only shared fields.
@@ -91,24 +93,23 @@ type Tool struct {
 }
 
 // MCPServerConfig defines an MCP server using the shared llmkit contract.
-type MCPServerConfig struct {
-	Type     string            `json:"type,omitempty"`
-	Command  string            `json:"command,omitempty"`
-	Args     []string          `json:"args,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
-	URL      string            `json:"url,omitempty"`
-	Headers  map[string]string `json:"headers,omitempty"`
-	Disabled bool              `json:"disabled,omitempty"`
+type MCPServerConfig = contract.MCPServerConfig
+
+type SessionMetadata struct {
+	Provider string          `json:"provider"`
+	Data     json.RawMessage `json:"data"`
 }
 
 type Response struct {
 	Content      string         `json:"content"`
 	ToolCalls    []ToolCall     `json:"tool_calls,omitempty"`
+	ToolResults  []ToolResult   `json:"tool_results,omitempty"`
 	Usage        TokenUsage     `json:"usage"`
 	Model        string         `json:"model"`
 	FinishReason string         `json:"finish_reason"`
 	Duration     time.Duration  `json:"duration"`
 	SessionID    string         `json:"session_id,omitempty"`
+	Session      *SessionMetadata `json:"session,omitempty"`
 	CostUSD      float64        `json:"cost_usd,omitempty"`
 	NumTurns     int            `json:"num_turns,omitempty"`
 	Metadata     map[string]any `json:"metadata,omitempty"`
@@ -118,6 +119,14 @@ type ToolCall struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+}
+
+type ToolResult struct {
+	ID       string `json:"id,omitempty"`
+	Name     string `json:"name"`
+	Output   string `json:"output,omitempty"`
+	Status   string `json:"status,omitempty"`
+	ExitCode *int   `json:"exit_code,omitempty"`
 }
 
 type TokenUsage struct {
@@ -137,11 +146,18 @@ func (u *TokenUsage) Add(other TokenUsage) {
 }
 
 type StreamChunk struct {
-	Content      string      `json:"content,omitempty"`
-	FinalContent string      `json:"final_content,omitempty"`
-	SessionID    string      `json:"session_id,omitempty"`
-	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`
-	Usage        *TokenUsage `json:"usage,omitempty"`
-	Done         bool        `json:"done"`
-	Error        error       `json:"-"`
+	Type         string           `json:"type,omitempty"`
+	Content      string           `json:"content,omitempty"`
+	FinalContent string           `json:"final_content,omitempty"`
+	MessageID    string           `json:"message_id,omitempty"`
+	Role         string           `json:"role,omitempty"`
+	Model        string           `json:"model,omitempty"`
+	SessionID    string           `json:"session_id,omitempty"`
+	Session      *SessionMetadata `json:"session,omitempty"`
+	ToolCalls    []ToolCall       `json:"tool_calls,omitempty"`
+	ToolResults  []ToolResult     `json:"tool_results,omitempty"`
+	Usage        *TokenUsage      `json:"usage,omitempty"`
+	Done         bool             `json:"done"`
+	Metadata     map[string]any   `json:"metadata,omitempty"`
+	Error        error            `json:"-"`
 }

@@ -9,17 +9,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/randalmurphal/llmkit/v2"
+	"github.com/randalmurphal/llmkit/v2/contract"
 )
 
 // ScopeConfig controls temporary provider-local mutations for a project.
 type ScopeConfig struct {
-	Hooks          map[string][]Hook                 `json:"hooks,omitempty"`
-	MCPServers     map[string]llmkit.MCPServerConfig `json:"mcp_servers,omitempty"`
-	Env            map[string]string                 `json:"env,omitempty"`
-	Tag            string                            `json:"tag,omitempty"`
-	RecoverOrphans bool                              `json:"recover_orphans,omitempty"`
-	BackupSettings bool                              `json:"backup_settings,omitempty"`
+	Hooks          map[string][]Hook                  `json:"hooks,omitempty"`
+	MCPServers     map[string]contract.MCPServerConfig `json:"mcp_servers,omitempty"`
+	Env            map[string]string                  `json:"env,omitempty"`
+	Tag            string                             `json:"tag,omitempty"`
+	RecoverOrphans bool                               `json:"recover_orphans,omitempty"`
+	BackupSettings bool                               `json:"backup_settings,omitempty"`
 }
 
 // Scope tracks llmkit-owned project-local environment changes.
@@ -43,7 +43,7 @@ type scopeRecord struct {
 	PID        int                               `json:"pid"`
 	CreatedAt  time.Time                         `json:"created_at"`
 	Hooks      map[string][]Hook                 `json:"hooks,omitempty"`
-	MCPServers map[string]llmkit.MCPServerConfig `json:"mcp_servers,omitempty"`
+	MCPServers map[string]contract.MCPServerConfig `json:"mcp_servers,omitempty"`
 	Env        map[string]string                 `json:"env,omitempty"`
 }
 
@@ -147,6 +147,11 @@ func (s *Scope) Restore() error {
 		_ = saveRegistry(s.workDir, reg)
 	}
 	return nil
+}
+
+// Close is an io.Closer alias for Restore.
+func (s *Scope) Close() error {
+	return s.Restore()
 }
 
 func restoreRecord(workDir string, record scopeRecord) error {
@@ -264,11 +269,11 @@ func cloneHookMap(in map[string][]Hook) map[string][]Hook {
 	return out
 }
 
-func cloneMCPServerMap(in map[string]llmkit.MCPServerConfig) map[string]llmkit.MCPServerConfig {
+func cloneMCPServerMap(in map[string]contract.MCPServerConfig) map[string]contract.MCPServerConfig {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make(map[string]llmkit.MCPServerConfig, len(in))
+	out := make(map[string]contract.MCPServerConfig, len(in))
 	for name, server := range in {
 		out[name] = cloneMCPServer(server)
 	}

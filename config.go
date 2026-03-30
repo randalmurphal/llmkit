@@ -14,13 +14,21 @@ type Config struct {
 	Model           string            `json:"model" yaml:"model" mapstructure:"model"`
 	FallbackModel   string            `json:"fallback_model" yaml:"fallback_model" mapstructure:"fallback_model"`
 	SystemPrompt    string            `json:"system_prompt" yaml:"system_prompt" mapstructure:"system_prompt"`
+	AppendSystemPrompt string         `json:"append_system_prompt" yaml:"append_system_prompt" mapstructure:"append_system_prompt"`
 	MaxTurns        int               `json:"max_turns" yaml:"max_turns" mapstructure:"max_turns"`
 	Timeout         time.Duration     `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
 	MaxBudgetUSD    float64           `json:"max_budget_usd" yaml:"max_budget_usd" mapstructure:"max_budget_usd"`
 	WorkDir         string            `json:"work_dir" yaml:"work_dir" mapstructure:"work_dir"`
 	AllowedTools    []string          `json:"allowed_tools" yaml:"allowed_tools" mapstructure:"allowed_tools"`
 	DisallowedTools []string          `json:"disallowed_tools" yaml:"disallowed_tools" mapstructure:"disallowed_tools"`
+	Tools           []string          `json:"tools" yaml:"tools" mapstructure:"tools"`
+	MCPServers      map[string]MCPServerConfig `json:"mcp_servers" yaml:"mcp_servers" mapstructure:"mcp_servers"`
+	StrictMCPConfig bool              `json:"strict_mcp_config" yaml:"strict_mcp_config" mapstructure:"strict_mcp_config"`
 	Env             map[string]string `json:"env" yaml:"env" mapstructure:"env"`
+	AddDirs         []string          `json:"add_dirs" yaml:"add_dirs" mapstructure:"add_dirs"`
+	Session         *SessionMetadata  `json:"session,omitempty" yaml:"session,omitempty" mapstructure:"session"`
+	ReasoningEffort string            `json:"reasoning_effort" yaml:"reasoning_effort" mapstructure:"reasoning_effort"`
+	WebSearchMode   string            `json:"web_search_mode" yaml:"web_search_mode" mapstructure:"web_search_mode"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.

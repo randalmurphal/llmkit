@@ -10,8 +10,8 @@ import (
 	"reflect"
 
 	"github.com/BurntSushi/toml"
-	"github.com/randalmurphal/llmkit/v2"
 	"github.com/randalmurphal/llmkit/v2/claudeconfig"
+	"github.com/randalmurphal/llmkit/v2/contract"
 	"github.com/randalmurphal/llmkit/v2/codexconfig"
 )
 
@@ -32,17 +32,17 @@ type Hook struct {
 
 // Settings is the shared llmkit view of project-local environment settings.
 type Settings struct {
-	Provider   string                            `json:"provider"`
-	Hooks      map[string][]Hook                 `json:"hooks,omitempty"`
-	MCPServers map[string]llmkit.MCPServerConfig `json:"mcp_servers,omitempty"`
-	Env        map[string]string                 `json:"env,omitempty"`
+	Provider   string                             `json:"provider"`
+	Hooks      map[string][]Hook                  `json:"hooks,omitempty"`
+	MCPServers map[string]contract.MCPServerConfig `json:"mcp_servers,omitempty"`
+	Env        map[string]string                  `json:"env,omitempty"`
 }
 
 func NewSettings(provider string) *Settings {
 	return &Settings{
 		Provider:   provider,
 		Hooks:      map[string][]Hook{},
-		MCPServers: map[string]llmkit.MCPServerConfig{},
+		MCPServers: map[string]contract.MCPServerConfig{},
 		Env:        map[string]string{},
 	}
 }
@@ -90,20 +90,20 @@ func (s *Settings) RemoveHook(event, matcher string) bool {
 	return false
 }
 
-func (s *Settings) GetMCPServers() map[string]llmkit.MCPServerConfig {
+func (s *Settings) GetMCPServers() map[string]contract.MCPServerConfig {
 	if s == nil {
 		return nil
 	}
-	out := make(map[string]llmkit.MCPServerConfig, len(s.MCPServers))
+	out := make(map[string]contract.MCPServerConfig, len(s.MCPServers))
 	for name, server := range s.MCPServers {
 		out[name] = cloneMCPServer(server)
 	}
 	return out
 }
 
-func (s *Settings) AddMCPServer(name string, cfg llmkit.MCPServerConfig) {
+func (s *Settings) AddMCPServer(name string, cfg contract.MCPServerConfig) {
 	if s.MCPServers == nil {
-		s.MCPServers = map[string]llmkit.MCPServerConfig{}
+		s.MCPServers = map[string]contract.MCPServerConfig{}
 	}
 	s.MCPServers[name] = cloneMCPServer(cfg)
 }
@@ -147,8 +147,8 @@ type projectStore interface {
 	removeHookIfMatches(event string, hook Hook) bool
 	setEnv(key, value string) error
 	removeEnvIfMatches(key, value string) bool
-	setMCP(name string, cfg llmkit.MCPServerConfig) error
-	removeMCPIfMatches(name string, cfg llmkit.MCPServerConfig) bool
+	setMCP(name string, cfg contract.MCPServerConfig) error
+	removeMCPIfMatches(name string, cfg contract.MCPServerConfig) bool
 	save() error
 	paths() []string
 }
@@ -176,7 +176,7 @@ func openProjectStore(provider, workDir string) (projectStore, error) {
 		}
 		return &codexStore{workDir: workDir, config: cfg, hooks: hooks}, nil
 	default:
-		return nil, fmt.Errorf("%w: %s", llmkit.ErrUnknownProvider, provider)
+		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}
 }
 
@@ -191,7 +191,7 @@ func (s *claudeStore) snapshot() *Settings {
 	maps.Copy(out.Env, s.settings.Env)
 	out.Hooks = flattenClaudeHooks(s.settings.Hooks)
 	for name, server := range s.mcp.MCPServers {
-		out.MCPServers[name] = llmkit.MCPServerConfig{
+		out.MCPServers[name] = contract.MCPServerConfig{
 			Type:     server.Type,
 			Command:  server.Command,
 			Args:     append([]string(nil), server.Args...),
@@ -279,7 +279,7 @@ func (s *claudeStore) removeEnvIfMatches(key, value string) bool {
 	return false
 }
 
-func (s *claudeStore) setMCP(name string, cfg llmkit.MCPServerConfig) error {
+func (s *claudeStore) setMCP(name string, cfg contract.MCPServerConfig) error {
 	if s.mcp.MCPServers == nil {
 		s.mcp.MCPServers = map[string]*claudeconfig.MCPServer{}
 	}
@@ -295,7 +295,7 @@ func (s *claudeStore) setMCP(name string, cfg llmkit.MCPServerConfig) error {
 	return nil
 }
 
-func (s *claudeStore) removeMCPIfMatches(name string, cfg llmkit.MCPServerConfig) bool {
+func (s *claudeStore) removeMCPIfMatches(name string, cfg contract.MCPServerConfig) bool {
 	current, ok := s.mcp.MCPServers[name]
 	if !ok {
 		return false
@@ -340,7 +340,7 @@ func (s *codexStore) snapshot() *Settings {
 	out := NewSettings("codex")
 	out.Hooks = flattenCodexHooks(s.hooks.Hooks)
 	for name, server := range s.config.MCPServers {
-		out.MCPServers[name] = llmkit.MCPServerConfig{
+		out.MCPServers[name] = contract.MCPServerConfig{
 			Type:     server.Type,
 			Command:  server.Command,
 			Args:     append([]string(nil), server.Args...),
@@ -358,7 +358,7 @@ func (s *codexStore) replace(settings *Settings) error {
 		settings = NewSettings("codex")
 	}
 	if len(settings.Env) > 0 {
-		return fmt.Errorf("%w: codex project env overrides", llmkit.ErrCapabilityNotSupported)
+		return fmt.Errorf("capability not supported: codex project env overrides")
 	}
 	s.config.MCPServers = map[string]codexconfig.MCPServer{}
 	for name, server := range settings.MCPServers {
@@ -415,12 +415,12 @@ func (s *codexStore) removeHookIfMatches(event string, hook Hook) bool {
 }
 
 func (s *codexStore) setEnv(_, _ string) error {
-	return fmt.Errorf("%w: codex project env overrides", llmkit.ErrCapabilityNotSupported)
+	return fmt.Errorf("capability not supported: codex project env overrides")
 }
 
 func (s *codexStore) removeEnvIfMatches(_, _ string) bool { return false }
 
-func (s *codexStore) setMCP(name string, cfg llmkit.MCPServerConfig) error {
+func (s *codexStore) setMCP(name string, cfg contract.MCPServerConfig) error {
 	if s.config.MCPServers == nil {
 		s.config.MCPServers = map[string]codexconfig.MCPServer{}
 	}
@@ -436,7 +436,7 @@ func (s *codexStore) setMCP(name string, cfg llmkit.MCPServerConfig) error {
 	return nil
 }
 
-func (s *codexStore) removeMCPIfMatches(name string, cfg llmkit.MCPServerConfig) bool {
+func (s *codexStore) removeMCPIfMatches(name string, cfg contract.MCPServerConfig) bool {
 	current, ok := s.config.MCPServers[name]
 	if !ok {
 		return false
@@ -625,8 +625,8 @@ func cloneStringMap(in map[string]string) map[string]string {
 	return out
 }
 
-func cloneMCPServer(in llmkit.MCPServerConfig) llmkit.MCPServerConfig {
-	return llmkit.MCPServerConfig{
+func cloneMCPServer(in contract.MCPServerConfig) contract.MCPServerConfig {
+	return contract.MCPServerConfig{
 		Type:     in.Type,
 		Command:  in.Command,
 		Args:     append([]string(nil), in.Args...),
