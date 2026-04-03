@@ -236,26 +236,8 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) 
 					},
 				}
 			case StreamEventAssistant:
-				if event.Assistant == nil {
-					continue
-				}
-				if event.Assistant.Text != "" {
-					out <- llmkit.StreamChunk{
-						Type:      "assistant",
-						Content:   event.Assistant.Text,
-						MessageID: event.Assistant.MessageID,
-						Role:      "assistant",
-						Model:     event.Assistant.Model,
-						SessionID: event.SessionID,
-						Session:   session,
-						Usage: &llmkit.TokenUsage{
-							InputTokens:              event.Assistant.Usage.InputTokens,
-							OutputTokens:             event.Assistant.Usage.OutputTokens,
-							TotalTokens:              event.Assistant.Usage.InputTokens + event.Assistant.Usage.OutputTokens,
-							CacheCreationInputTokens: event.Assistant.Usage.CacheCreationInputTokens,
-							CacheReadInputTokens:     event.Assistant.Usage.CacheReadInputTokens,
-						},
-					}
+				if chunk, ok := assistantChunkFromEvent(event, session); ok {
+					out <- chunk
 				}
 				var toolCalls []llmkit.ToolCall
 				for _, block := range event.Assistant.Content {
@@ -356,6 +338,37 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) 
 	}()
 
 	return out, nil
+}
+
+func assistantChunkFromEvent(event StreamEvent, session *llmkit.SessionMetadata) (llmkit.StreamChunk, bool) {
+	if event.Assistant == nil {
+		return llmkit.StreamChunk{}, false
+	}
+	if event.Assistant.Text == "" && len(event.Assistant.Content) == 0 {
+		return llmkit.StreamChunk{}, false
+	}
+
+	chunk := llmkit.StreamChunk{
+		Type:      "assistant",
+		Content:   event.Assistant.Text,
+		MessageID: event.Assistant.MessageID,
+		Role:      "assistant",
+		Model:     event.Assistant.Model,
+		SessionID: event.SessionID,
+		Session:   session,
+		Usage: &llmkit.TokenUsage{
+			InputTokens:              event.Assistant.Usage.InputTokens,
+			OutputTokens:             event.Assistant.Usage.OutputTokens,
+			TotalTokens:              event.Assistant.Usage.InputTokens + event.Assistant.Usage.OutputTokens,
+			CacheCreationInputTokens: event.Assistant.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     event.Assistant.Usage.CacheReadInputTokens,
+		},
+	}
+	if len(event.Assistant.Content) > 0 {
+		chunk.Metadata = map[string]any{"content_blocks": event.Assistant.Content}
+	}
+
+	return chunk, true
 }
 
 func (a *claudeProviderAdapter) Provider() string {

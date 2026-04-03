@@ -94,42 +94,19 @@ func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
 		opts = append(opts, WithWebSearchMode(WebSearchMode(webSearchMode)))
 	}
 
-	return &codexProviderAdapter{cli: NewCodexCLI(opts...)}, nil
+	return &codexProviderAdapter{
+		cli:                 NewCodexCLI(opts...),
+		defaultSystemPrompt: cfg.SystemPrompt,
+	}, nil
 }
 
 type codexProviderAdapter struct {
-	cli *CodexCLI
+	cli                 *CodexCLI
+	defaultSystemPrompt string
 }
 
 func (a *codexProviderAdapter) Complete(ctx context.Context, req llmkit.Request) (*llmkit.Response, error) {
-	codexReq := CompletionRequest{
-		SystemPrompt: req.SystemPrompt,
-		Model:        req.Model,
-		MaxTokens:    req.MaxTokens,
-		Temperature:  req.Temperature,
-		JSONSchema:   req.JSONSchema,
-	}
-
-	codexReq.Messages = make([]Message, len(req.Messages))
-	for i, m := range req.Messages {
-		codexReq.Messages[i] = Message{
-			Role:    Role(m.Role),
-			Content: m.Content,
-			Name:    m.Name,
-		}
-	}
-
-	if len(req.Tools) > 0 {
-		codexReq.Tools = make([]Tool, len(req.Tools))
-		for i, t := range req.Tools {
-			codexReq.Tools[i] = Tool{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  t.Parameters,
-			}
-		}
-	}
-
+	codexReq := a.buildCompletionRequest(req)
 	resp, err := a.cli.Complete(ctx, codexReq)
 	if err != nil {
 		return nil, err
@@ -139,34 +116,7 @@ func (a *codexProviderAdapter) Complete(ctx context.Context, req llmkit.Request)
 }
 
 func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (<-chan llmkit.StreamChunk, error) {
-	codexReq := CompletionRequest{
-		SystemPrompt: req.SystemPrompt,
-		Model:        req.Model,
-		MaxTokens:    req.MaxTokens,
-		Temperature:  req.Temperature,
-		JSONSchema:   req.JSONSchema,
-	}
-
-	codexReq.Messages = make([]Message, len(req.Messages))
-	for i, m := range req.Messages {
-		codexReq.Messages[i] = Message{
-			Role:    Role(m.Role),
-			Content: m.Content,
-			Name:    m.Name,
-		}
-	}
-
-	if len(req.Tools) > 0 {
-		codexReq.Tools = make([]Tool, len(req.Tools))
-		for i, t := range req.Tools {
-			codexReq.Tools[i] = Tool{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  t.Parameters,
-			}
-		}
-	}
-
+	codexReq := a.buildCompletionRequest(req)
 	codexStream, err := a.cli.Stream(ctx, codexReq)
 	if err != nil {
 		return nil, err
@@ -259,6 +209,43 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 	}()
 
 	return out, nil
+}
+
+func (a *codexProviderAdapter) buildCompletionRequest(req llmkit.Request) CompletionRequest {
+	systemPrompt := req.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = a.defaultSystemPrompt
+	}
+
+	codexReq := CompletionRequest{
+		SystemPrompt: systemPrompt,
+		Model:        req.Model,
+		MaxTokens:    req.MaxTokens,
+		Temperature:  req.Temperature,
+		JSONSchema:   req.JSONSchema,
+	}
+
+	codexReq.Messages = make([]Message, len(req.Messages))
+	for i, m := range req.Messages {
+		codexReq.Messages[i] = Message{
+			Role:    Role(m.Role),
+			Content: m.Content,
+			Name:    m.Name,
+		}
+	}
+
+	if len(req.Tools) > 0 {
+		codexReq.Tools = make([]Tool, len(req.Tools))
+		for i, t := range req.Tools {
+			codexReq.Tools[i] = Tool{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  t.Parameters,
+			}
+		}
+	}
+
+	return codexReq
 }
 
 func (a *codexProviderAdapter) Provider() string {

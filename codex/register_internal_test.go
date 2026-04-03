@@ -25,3 +25,28 @@ func TestNewFromProviderConfig_MapsSharedFields(t *testing.T) {
 	assertArgPair(t, args, "--model", "gpt-5-codex")
 	assertArgPair(t, args, "--cd", "/tmp/work")
 }
+
+func TestCodexProviderAdapter_BuildCompletionRequest_UsesDefaultSystemPrompt(t *testing.T) {
+	adapter := &codexProviderAdapter{defaultSystemPrompt: "default system"}
+
+	req := adapter.buildCompletionRequest(llmkit.Request{
+		Messages: []llmkit.Message{llmkit.NewTextMessage(llmkit.RoleUser, "hi")},
+	})
+
+	if req.SystemPrompt != "default system" {
+		t.Fatalf("system prompt = %q, want default system", req.SystemPrompt)
+	}
+}
+
+func TestCodexProviderAdapter_BuildCompletionRequest_RequestPromptWins(t *testing.T) {
+	adapter := &codexProviderAdapter{defaultSystemPrompt: "default system"}
+
+	req := adapter.buildCompletionRequest(llmkit.Request{
+		SystemPrompt: "request system",
+		Messages:     []llmkit.Message{llmkit.NewTextMessage(llmkit.RoleUser, "hi")},
+	})
+
+	if req.SystemPrompt != "request system" {
+		t.Fatalf("system prompt = %q, want request system", req.SystemPrompt)
+	}
+}
