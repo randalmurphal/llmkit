@@ -128,12 +128,14 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 		for chunk := range codexStream {
 			session := codexSession(chunk.SessionID)
 			if chunk.Content != "" {
-				out <- llmkit.StreamChunk{
+				if !emitStreamChunk(ctx, out, llmkit.StreamChunk{
 					Type:      "assistant",
 					Content:   chunk.Content,
 					Role:      "assistant",
 					SessionID: chunk.SessionID,
 					Session:   session,
+				}) {
+					return
 				}
 			}
 			if len(chunk.ToolCalls) > 0 {
@@ -145,12 +147,14 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 						Arguments: tc.Arguments,
 					}
 				}
-				out <- llmkit.StreamChunk{
+				if !emitStreamChunk(ctx, out, llmkit.StreamChunk{
 					Type:      "tool_call",
 					Role:      "assistant",
 					SessionID: chunk.SessionID,
 					Session:   session,
 					ToolCalls: toolCalls,
+				}) {
+					return
 				}
 			}
 			if len(chunk.ToolResults) > 0 {
@@ -164,12 +168,14 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 						ExitCode: tr.ExitCode,
 					}
 				}
-				out <- llmkit.StreamChunk{
+				if !emitStreamChunk(ctx, out, llmkit.StreamChunk{
 					Type:        "tool_result",
 					Role:        "tool",
 					SessionID:   chunk.SessionID,
 					Session:     session,
 					ToolResults: toolResults,
+				}) {
+					return
 				}
 			}
 			if chunk.Usage != nil || chunk.FinalContent != "" || chunk.Done {
@@ -194,21 +200,34 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 						CacheReadInputTokens:     chunk.Usage.CacheReadInputTokens,
 					}
 				}
-				out <- converted
+				if !emitStreamChunk(ctx, out, converted) {
+					return
+				}
 			}
 			if chunk.Error != nil {
-				out <- llmkit.StreamChunk{
+				if !emitStreamChunk(ctx, out, llmkit.StreamChunk{
 					Type:      "error",
 					SessionID: chunk.SessionID,
 					Session:   session,
 					Error:     chunk.Error,
 					Done:      chunk.Done,
+				}) {
+					return
 				}
 			}
 		}
 	}()
 
 	return out, nil
+}
+
+func emitStreamChunk(ctx context.Context, out chan<- llmkit.StreamChunk, chunk llmkit.StreamChunk) bool {
+	select {
+	case out <- chunk:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (a *codexProviderAdapter) buildCompletionRequest(req llmkit.Request) CompletionRequest {

@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"context"
 	"testing"
 
 	"github.com/randalmurphal/llmkit/v2"
@@ -48,5 +49,15 @@ func TestCodexProviderAdapter_BuildCompletionRequest_RequestPromptWins(t *testin
 
 	if req.SystemPrompt != "request system" {
 		t.Fatalf("system prompt = %q, want request system", req.SystemPrompt)
+	}
+}
+
+func TestEmitStreamChunk_StopsWhenContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ch := make(chan llmkit.StreamChunk)
+	if emitStreamChunk(ctx, ch, llmkit.StreamChunk{Type: "assistant", Content: "ignored"}) {
+		t.Fatal("emitStreamChunk should stop when the stream context is cancelled")
 	}
 }
