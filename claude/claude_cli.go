@@ -73,6 +73,7 @@ type ClaudeCLI struct {
 	// Budget and limits
 	maxBudgetUSD  float64
 	fallbackModel string
+	effort        string
 	maxTurns      int
 
 	// Credential/environment control (for containers)
@@ -240,6 +241,12 @@ func WithMaxBudgetUSD(amount float64) ClaudeOption {
 // WithFallbackModel sets a fallback model to use if the primary is overloaded.
 func WithFallbackModel(model string) ClaudeOption {
 	return func(c *ClaudeCLI) { c.fallbackModel = model }
+}
+
+// WithEffort sets the reasoning effort level.
+// Valid values are defined by the Claude CLI.
+func WithEffort(level string) ClaudeOption {
+	return func(c *ClaudeCLI) { c.effort = level }
 }
 
 // WithMaxTurns limits the number of agentic turns in a conversation.
@@ -925,6 +932,9 @@ func (c *ClaudeCLI) appendModelArgs(args []string, req CompletionRequest) []stri
 	// Fallback model
 	if c.fallbackModel != "" {
 		args = append(args, claudecontract.FlagFallbackModel, c.fallbackModel)
+	}
+	if c.effort != "" {
+		args = append(args, claudecontract.FlagEffort, c.effort)
 	}
 
 	// NOTE: MaxTokens is not supported by Claude CLI - it's an agentic interface

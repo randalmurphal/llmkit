@@ -20,17 +20,17 @@ type RuntimeConfig struct {
 }
 
 type SharedRuntimeConfig struct {
-	SystemPrompt       string                      `json:"system_prompt,omitempty"`
-	AppendSystemPrompt string                      `json:"append_system_prompt,omitempty"`
-	AllowedTools       []string                    `json:"allowed_tools,omitempty"`
-	DisallowedTools    []string                    `json:"disallowed_tools,omitempty"`
-	Tools              []string                    `json:"tools,omitempty"`
-	MCPServers         map[string]MCPServerConfig  `json:"mcp_servers,omitempty"`
-	StrictMCPConfig    bool                        `json:"strict_mcp_config,omitempty"`
-	MaxBudgetUSD       float64                     `json:"max_budget_usd,omitempty"`
-	MaxTurns           int                         `json:"max_turns,omitempty"`
-	Env                map[string]string           `json:"env,omitempty"`
-	AddDirs            []string                    `json:"add_dirs,omitempty"`
+	SystemPrompt       string                     `json:"system_prompt,omitempty"`
+	AppendSystemPrompt string                     `json:"append_system_prompt,omitempty"`
+	AllowedTools       []string                   `json:"allowed_tools,omitempty"`
+	DisallowedTools    []string                   `json:"disallowed_tools,omitempty"`
+	Tools              []string                   `json:"tools,omitempty"`
+	MCPServers         map[string]MCPServerConfig `json:"mcp_servers,omitempty"`
+	StrictMCPConfig    bool                       `json:"strict_mcp_config,omitempty"`
+	MaxBudgetUSD       float64                    `json:"max_budget_usd,omitempty"`
+	MaxTurns           int                        `json:"max_turns,omitempty"`
+	Env                map[string]string          `json:"env,omitempty"`
+	AddDirs            []string                   `json:"add_dirs,omitempty"`
 }
 
 type RuntimeProviderConfig struct {
@@ -39,17 +39,23 @@ type RuntimeProviderConfig struct {
 }
 
 type ClaudeRuntimeConfig struct {
-	SystemPromptFile       string                     `json:"system_prompt_file,omitempty"`
-	AppendSystemPromptFile string                     `json:"append_system_prompt_file,omitempty"`
-	SkillRefs              []string                   `json:"skill_refs,omitempty"`
-	AgentRef               string                     `json:"agent_ref,omitempty"`
-	InlineAgents           map[string]InlineAgentDef  `json:"inline_agents,omitempty"`
-	Hooks                  map[string][]HookMatcher   `json:"hooks,omitempty"`
+	SystemPromptFile           string                    `json:"system_prompt_file,omitempty"`
+	AppendSystemPromptFile     string                    `json:"append_system_prompt_file,omitempty"`
+	SkillRefs                  []string                  `json:"skill_refs,omitempty"`
+	AgentRef                   string                    `json:"agent_ref,omitempty"`
+	InlineAgents               map[string]InlineAgentDef `json:"inline_agents,omitempty"`
+	Hooks                      map[string][]HookMatcher  `json:"hooks,omitempty"`
+	DangerouslySkipPermissions bool                      `json:"dangerously_skip_permissions,omitempty"`
+	PermissionMode             string                    `json:"permission_mode,omitempty"`
+	SettingSources             []string                  `json:"setting_sources,omitempty"`
 }
 
 type CodexRuntimeConfig struct {
-	ReasoningEffort string `json:"reasoning_effort,omitempty"`
-	WebSearchMode   string `json:"web_search_mode,omitempty"`
+	ReasoningEffort           string `json:"reasoning_effort,omitempty"`
+	WebSearchMode             string `json:"web_search_mode,omitempty"`
+	SandboxMode               string `json:"sandbox_mode,omitempty"`
+	ApprovalMode              string `json:"approval_mode,omitempty"`
+	BypassApprovalsAndSandbox bool   `json:"bypass_approvals_and_sandbox,omitempty"`
 }
 
 type InlineAgentDef struct {
@@ -85,12 +91,12 @@ type RuntimeAssets struct {
 }
 
 type PrepareRequest struct {
-	Provider       string        `json:"provider"`
-	WorkDir        string        `json:"work_dir"`
-	RuntimeConfig  RuntimeConfig `json:"runtime_config"`
+	Provider       string         `json:"provider"`
+	WorkDir        string         `json:"work_dir"`
+	RuntimeConfig  RuntimeConfig  `json:"runtime_config"`
 	Assets         *RuntimeAssets `json:"assets,omitempty"`
-	Tag            string        `json:"tag,omitempty"`
-	RecoverOrphans bool          `json:"recover_orphans,omitempty"`
+	Tag            string         `json:"tag,omitempty"`
+	RecoverOrphans bool           `json:"recover_orphans,omitempty"`
 }
 
 type PreparedRuntime struct {
@@ -498,6 +504,7 @@ func BuildConfig(provider, model, workDir string, runtime RuntimeConfig, session
 	cfg.Env = cloneStringMap(runtime.Shared.Env)
 	cfg.AddDirs = append([]string(nil), runtime.Shared.AddDirs...)
 	cfg.Session = session
+	cfg.Runtime = runtime
 
 	if provider == "codex" && runtime.Providers.Codex != nil {
 		cfg.ReasoningEffort = runtime.Providers.Codex.ReasoningEffort

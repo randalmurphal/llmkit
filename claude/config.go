@@ -20,6 +20,10 @@ type Config struct {
 	// Optional.
 	FallbackModel string `json:"fallback_model" yaml:"fallback_model" mapstructure:"fallback_model"`
 
+	// Effort sets the Claude reasoning effort level.
+	// Optional.
+	Effort string `json:"effort" yaml:"effort" mapstructure:"effort"`
+
 	// --- Prompts ---
 
 	// SystemPrompt is the system message prepended to all requests.
@@ -179,6 +183,9 @@ func (c *Config) LoadFromEnv() {
 	if v := os.Getenv("CLAUDE_FALLBACK_MODEL"); v != "" {
 		c.FallbackModel = v
 	}
+	if v := os.Getenv("CLAUDE_EFFORT"); v != "" {
+		c.Effort = v
+	}
 	if v := os.Getenv("CLAUDE_SYSTEM_PROMPT"); v != "" {
 		c.SystemPrompt = v
 	}
@@ -273,6 +280,9 @@ func (c *Config) ToOptions() []ClaudeOption {
 	}
 	if c.FallbackModel != "" {
 		opts = append(opts, WithFallbackModel(c.FallbackModel))
+	}
+	if c.Effort != "" {
+		opts = append(opts, WithEffort(c.Effort))
 	}
 	if c.SystemPrompt != "" {
 		opts = append(opts, WithSystemPrompt(c.SystemPrompt))

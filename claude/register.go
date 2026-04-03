@@ -64,6 +64,9 @@ func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
 	if cfg.MaxBudgetUSD > 0 {
 		opts = append(opts, WithMaxBudgetUSD(cfg.MaxBudgetUSD))
 	}
+	if cfg.BinaryPath != "" {
+		opts = append(opts, WithClaudePath(cfg.BinaryPath))
+	}
 	if cfg.WorkDir != "" {
 		opts = append(opts, WithWorkdir(cfg.WorkDir))
 	}
@@ -100,7 +103,36 @@ func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
 		opts = append(opts, WithAddDirs(cfg.AddDirs))
 	}
 	if sessionID := sessionIDFromMetadata(cfg.Session); sessionID != "" {
-		opts = append(opts, WithResume(sessionID))
+		if cfg.ResumeSession {
+			opts = append(opts, WithResume(sessionID))
+		} else {
+			opts = append(opts, WithSessionID(sessionID))
+		}
+	}
+	if cfg.ReasoningEffort != "" {
+		opts = append(opts, WithEffort(cfg.ReasoningEffort))
+	}
+	if cfg.Runtime.Providers.Claude != nil {
+		claudeCfg := cfg.Runtime.Providers.Claude
+		if claudeCfg.DangerouslySkipPermissions {
+			opts = append(opts, WithDangerouslySkipPermissions())
+		}
+		if claudeCfg.PermissionMode != "" {
+			opts = append(opts, WithPermissionMode(PermissionMode(claudeCfg.PermissionMode)))
+		}
+		if len(claudeCfg.SettingSources) > 0 {
+			opts = append(opts, WithSettingSources(claudeCfg.SettingSources))
+		}
+		if claudeCfg.AgentRef != "" {
+			opts = append(opts, WithAgent(claudeCfg.AgentRef))
+		}
+		if len(claudeCfg.InlineAgents) > 0 {
+			data, err := json.Marshal(claudeCfg.InlineAgents)
+			if err != nil {
+				return nil, fmt.Errorf("marshal inline agents: %w", err)
+			}
+			opts = append(opts, WithAgentsJSON(string(data)))
+		}
 	}
 
 	return &claudeProviderAdapter{cli: NewClaudeCLI(opts...)}, nil
@@ -193,12 +225,13 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) 
 			case StreamEventInit:
 				session = claudeSession(event.SessionID)
 				out <- llmkit.StreamChunk{
-					Type:    "session",
-					Session: session,
-					Model:   event.Init.Model,
+					Type:      "session",
+					Session:   session,
+					SessionID: event.SessionID,
+					Model:     event.Init.Model,
 					Metadata: map[string]any{
-						"cwd":                event.Init.CWD,
-						"permission_mode":    event.Init.PermissionMode,
+						"cwd":                 event.Init.CWD,
+						"permission_mode":     event.Init.PermissionMode,
 						"claude_code_version": event.Init.ClaudeCodeVersion,
 					},
 				}
@@ -213,7 +246,15 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) 
 						MessageID: event.Assistant.MessageID,
 						Role:      "assistant",
 						Model:     event.Assistant.Model,
+						SessionID: event.SessionID,
 						Session:   session,
+						Usage: &llmkit.TokenUsage{
+							InputTokens:              event.Assistant.Usage.InputTokens,
+							OutputTokens:             event.Assistant.Usage.OutputTokens,
+							TotalTokens:              event.Assistant.Usage.InputTokens + event.Assistant.Usage.OutputTokens,
+							CacheCreationInputTokens: event.Assistant.Usage.CacheCreationInputTokens,
+							CacheReadInputTokens:     event.Assistant.Usage.CacheReadInputTokens,
+						},
 					}
 				}
 				var toolCalls []llmkit.ToolCall
@@ -231,6 +272,7 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) 
 						Type:      "tool_call",
 						Role:      "assistant",
 						Model:     event.Assistant.Model,
+						SessionID: event.SessionID,
 						Session:   session,
 						MessageID: event.Assistant.MessageID,
 						ToolCalls: toolCalls,
@@ -262,6 +304,7 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) 
 					Type:        "tool_result",
 					Role:        "tool",
 					Content:     content,
+					SessionID:   event.User.SessionID,
 					Session:     claudeSession(event.User.SessionID),
 					ToolResults: toolResults,
 				}
@@ -270,9 +313,10 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) 
 					continue
 				}
 				out <- llmkit.StreamChunk{
-					Type:    "hook",
-					Role:    "system",
-					Session: claudeSession(event.Hook.SessionID),
+					Type:      "hook",
+					Role:      "system",
+					SessionID: event.Hook.SessionID,
+					Session:   claudeSession(event.Hook.SessionID),
 					Metadata: map[string]any{
 						"hook_name":  event.Hook.HookName,
 						"hook_event": event.Hook.HookEvent,
@@ -286,7 +330,7 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) 
 
 		final, err := result.Wait(ctx)
 		if err != nil {
-			out <- llmkit.StreamChunk{Type: "error", Error: err, Done: true, Session: session}
+			out <- llmkit.StreamChunk{Type: "error", Error: err, Done: true, SessionID: llmkit.SessionID(session), Session: session}
 			return
 		}
 
@@ -295,10 +339,19 @@ func (a *claudeProviderAdapter) Stream(ctx context.Context, req llmkit.Request) 
 		if len(final.StructuredOutput) > 0 {
 			finalContent = string(final.StructuredOutput)
 		}
-		out <- llmkit.StreamChunk{Type: "final", Done: true, Usage: &totalUsage, Session: claudeSession(final.SessionID), FinalContent: finalContent}
+		out <- llmkit.StreamChunk{
+			Type:         "final",
+			Done:         true,
+			SessionID:    final.SessionID,
+			Usage:        &totalUsage,
+			Session:      claudeSession(final.SessionID),
+			FinalContent: finalContent,
+			CostUSD:      final.TotalCostUSD,
+			NumTurns:     final.NumTurns,
+		}
 
 		if final.IsError {
-			out <- llmkit.StreamChunk{Type: "error", Error: fmt.Errorf("streaming failed: %s", final.Result), Session: claudeSession(final.SessionID)}
+			out <- llmkit.StreamChunk{Type: "error", Error: fmt.Errorf("streaming failed: %s", final.Result), SessionID: final.SessionID, Session: claudeSession(final.SessionID)}
 		}
 	}()
 
@@ -327,6 +380,7 @@ func (a *claudeProviderAdapter) convertResponse(resp *CompletionResponse) *llmki
 		Model:        resp.Model,
 		FinishReason: resp.FinishReason,
 		Duration:     resp.Duration,
+		SessionID:    resp.SessionID,
 		Session:      claudeSession(resp.SessionID),
 		CostUSD:      resp.CostUSD,
 		NumTurns:     resp.NumTurns,

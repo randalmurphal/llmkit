@@ -36,6 +36,9 @@ var (
 
 	// ErrCapabilityNotSupported indicates the provider doesn't support the requested capability.
 	ErrCapabilityNotSupported = errors.New("capability not supported by provider")
+
+	// ErrUnsupportedFeature indicates the provider cannot satisfy a requested feature or mode.
+	ErrUnsupportedFeature = errors.New("unsupported feature")
 )
 
 // Error wraps provider errors with context.

@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/randalmurphal/llmkit/v2"
 )
@@ -44,6 +45,9 @@ func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
 	if cfg.Model != "" {
 		opts = append(opts, WithModel(cfg.Model))
 	}
+	if cfg.BinaryPath != "" {
+		opts = append(opts, WithCodexPath(cfg.BinaryPath))
+	}
 	if cfg.Timeout > 0 {
 		opts = append(opts, WithTimeout(cfg.Timeout))
 	}
@@ -56,14 +60,38 @@ func newFromProviderConfig(cfg llmkit.Config) (llmkit.Client, error) {
 	if len(cfg.AddDirs) > 0 {
 		opts = append(opts, WithAddDirs(cfg.AddDirs))
 	}
-	if cfg.ReasoningEffort != "" {
-		opts = append(opts, WithReasoningEffort(cfg.ReasoningEffort))
-	}
-	if cfg.WebSearchMode != "" {
-		opts = append(opts, WithWebSearchMode(WebSearchMode(cfg.WebSearchMode)))
-	}
 	if sessionID := sessionIDFromMetadata(cfg.Session); sessionID != "" {
+		if !cfg.ResumeSession {
+			return nil, fmt.Errorf("%w: codex client only supports resuming existing sessions", llmkit.ErrUnsupportedFeature)
+		}
 		opts = append(opts, WithSessionID(sessionID))
+	}
+	reasoningEffort := cfg.ReasoningEffort
+	webSearchMode := cfg.WebSearchMode
+	if cfg.Runtime.Providers.Codex != nil {
+		codexCfg := cfg.Runtime.Providers.Codex
+		if codexCfg.ReasoningEffort != "" {
+			reasoningEffort = codexCfg.ReasoningEffort
+		}
+		if codexCfg.WebSearchMode != "" {
+			webSearchMode = codexCfg.WebSearchMode
+		}
+		if codexCfg.BypassApprovalsAndSandbox {
+			opts = append(opts, WithDangerouslyBypassApprovalsAndSandbox())
+		} else {
+			if codexCfg.SandboxMode != "" {
+				opts = append(opts, WithSandboxMode(SandboxMode(codexCfg.SandboxMode)))
+			}
+			if codexCfg.ApprovalMode != "" {
+				opts = append(opts, WithApprovalMode(ApprovalMode(codexCfg.ApprovalMode)))
+			}
+		}
+	}
+	if reasoningEffort != "" {
+		opts = append(opts, WithReasoningEffort(reasoningEffort))
+	}
+	if webSearchMode != "" {
+		opts = append(opts, WithWebSearchMode(WebSearchMode(webSearchMode)))
 	}
 
 	return &codexProviderAdapter{cli: NewCodexCLI(opts...)}, nil
@@ -148,30 +176,37 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 	go func() {
 		defer close(out)
 		for chunk := range codexStream {
-			converted := llmkit.StreamChunk{
-				Type:         "assistant",
-				Content:      chunk.Content,
-				FinalContent: chunk.FinalContent,
-				Session:      codexSession(chunk.SessionID),
-				Done:         chunk.Done,
-				Error:        chunk.Error,
+			session := codexSession(chunk.SessionID)
+			if chunk.Content != "" {
+				out <- llmkit.StreamChunk{
+					Type:      "assistant",
+					Content:   chunk.Content,
+					Role:      "assistant",
+					SessionID: chunk.SessionID,
+					Session:   session,
+				}
 			}
-
 			if len(chunk.ToolCalls) > 0 {
-				converted.ToolCalls = make([]llmkit.ToolCall, len(chunk.ToolCalls))
+				toolCalls := make([]llmkit.ToolCall, len(chunk.ToolCalls))
 				for i, tc := range chunk.ToolCalls {
-					converted.ToolCalls[i] = llmkit.ToolCall{
+					toolCalls[i] = llmkit.ToolCall{
 						ID:        tc.ID,
 						Name:      tc.Name,
 						Arguments: tc.Arguments,
 					}
 				}
-				converted.Type = "tool_call"
+				out <- llmkit.StreamChunk{
+					Type:      "tool_call",
+					Role:      "assistant",
+					SessionID: chunk.SessionID,
+					Session:   session,
+					ToolCalls: toolCalls,
+				}
 			}
 			if len(chunk.ToolResults) > 0 {
-				converted.ToolResults = make([]llmkit.ToolResult, len(chunk.ToolResults))
+				toolResults := make([]llmkit.ToolResult, len(chunk.ToolResults))
 				for i, tr := range chunk.ToolResults {
-					converted.ToolResults[i] = llmkit.ToolResult{
+					toolResults[i] = llmkit.ToolResult{
 						ID:       tr.ID,
 						Name:     tr.Name,
 						Output:   tr.Output,
@@ -179,20 +214,47 @@ func (a *codexProviderAdapter) Stream(ctx context.Context, req llmkit.Request) (
 						ExitCode: tr.ExitCode,
 					}
 				}
-				converted.Type = "tool_result"
-			}
-
-			if chunk.Usage != nil {
-				converted.Usage = &llmkit.TokenUsage{
-					InputTokens:              chunk.Usage.InputTokens,
-					OutputTokens:             chunk.Usage.OutputTokens,
-					TotalTokens:              chunk.Usage.TotalTokens,
-					CacheCreationInputTokens: chunk.Usage.CacheCreationInputTokens,
-					CacheReadInputTokens:     chunk.Usage.CacheReadInputTokens,
+				out <- llmkit.StreamChunk{
+					Type:        "tool_result",
+					Role:        "tool",
+					SessionID:   chunk.SessionID,
+					Session:     session,
+					ToolResults: toolResults,
 				}
 			}
-
-			out <- converted
+			if chunk.Usage != nil || chunk.FinalContent != "" || chunk.Done {
+				finalContent := chunk.FinalContent
+				if finalContent == "" && chunk.Done {
+					finalContent = chunk.Content
+				}
+				converted := llmkit.StreamChunk{
+					Type:         "final",
+					FinalContent: finalContent,
+					SessionID:    chunk.SessionID,
+					Session:      session,
+					Done:         chunk.Done,
+					Error:        chunk.Error,
+				}
+				if chunk.Usage != nil {
+					converted.Usage = &llmkit.TokenUsage{
+						InputTokens:              chunk.Usage.InputTokens,
+						OutputTokens:             chunk.Usage.OutputTokens,
+						TotalTokens:              chunk.Usage.TotalTokens,
+						CacheCreationInputTokens: chunk.Usage.CacheCreationInputTokens,
+						CacheReadInputTokens:     chunk.Usage.CacheReadInputTokens,
+					}
+				}
+				out <- converted
+			}
+			if chunk.Error != nil {
+				out <- llmkit.StreamChunk{
+					Type:      "error",
+					SessionID: chunk.SessionID,
+					Session:   session,
+					Error:     chunk.Error,
+					Done:      chunk.Done,
+				}
+			}
 		}
 	}()
 
@@ -221,6 +283,7 @@ func (a *codexProviderAdapter) convertResponse(resp *CompletionResponse) *llmkit
 		Model:        resp.Model,
 		FinishReason: resp.FinishReason,
 		Duration:     resp.Duration,
+		SessionID:    resp.SessionID,
 		Session:      codexSession(resp.SessionID),
 		CostUSD:      resp.CostUSD,
 		NumTurns:     resp.NumTurns,

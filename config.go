@@ -10,25 +10,28 @@ import (
 // Config holds shared configuration for creating a provider client.
 // Provider-specific behavior is configured through direct provider constructors.
 type Config struct {
-	Provider        string            `json:"provider" yaml:"provider" mapstructure:"provider"`
-	Model           string            `json:"model" yaml:"model" mapstructure:"model"`
-	FallbackModel   string            `json:"fallback_model" yaml:"fallback_model" mapstructure:"fallback_model"`
-	SystemPrompt    string            `json:"system_prompt" yaml:"system_prompt" mapstructure:"system_prompt"`
-	AppendSystemPrompt string         `json:"append_system_prompt" yaml:"append_system_prompt" mapstructure:"append_system_prompt"`
-	MaxTurns        int               `json:"max_turns" yaml:"max_turns" mapstructure:"max_turns"`
-	Timeout         time.Duration     `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
-	MaxBudgetUSD    float64           `json:"max_budget_usd" yaml:"max_budget_usd" mapstructure:"max_budget_usd"`
-	WorkDir         string            `json:"work_dir" yaml:"work_dir" mapstructure:"work_dir"`
-	AllowedTools    []string          `json:"allowed_tools" yaml:"allowed_tools" mapstructure:"allowed_tools"`
-	DisallowedTools []string          `json:"disallowed_tools" yaml:"disallowed_tools" mapstructure:"disallowed_tools"`
-	Tools           []string          `json:"tools" yaml:"tools" mapstructure:"tools"`
-	MCPServers      map[string]MCPServerConfig `json:"mcp_servers" yaml:"mcp_servers" mapstructure:"mcp_servers"`
-	StrictMCPConfig bool              `json:"strict_mcp_config" yaml:"strict_mcp_config" mapstructure:"strict_mcp_config"`
-	Env             map[string]string `json:"env" yaml:"env" mapstructure:"env"`
-	AddDirs         []string          `json:"add_dirs" yaml:"add_dirs" mapstructure:"add_dirs"`
-	Session         *SessionMetadata  `json:"session,omitempty" yaml:"session,omitempty" mapstructure:"session"`
-	ReasoningEffort string            `json:"reasoning_effort" yaml:"reasoning_effort" mapstructure:"reasoning_effort"`
-	WebSearchMode   string            `json:"web_search_mode" yaml:"web_search_mode" mapstructure:"web_search_mode"`
+	Provider           string                     `json:"provider" yaml:"provider" mapstructure:"provider"`
+	Model              string                     `json:"model" yaml:"model" mapstructure:"model"`
+	FallbackModel      string                     `json:"fallback_model" yaml:"fallback_model" mapstructure:"fallback_model"`
+	SystemPrompt       string                     `json:"system_prompt" yaml:"system_prompt" mapstructure:"system_prompt"`
+	AppendSystemPrompt string                     `json:"append_system_prompt" yaml:"append_system_prompt" mapstructure:"append_system_prompt"`
+	MaxTurns           int                        `json:"max_turns" yaml:"max_turns" mapstructure:"max_turns"`
+	Timeout            time.Duration              `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
+	MaxBudgetUSD       float64                    `json:"max_budget_usd" yaml:"max_budget_usd" mapstructure:"max_budget_usd"`
+	WorkDir            string                     `json:"work_dir" yaml:"work_dir" mapstructure:"work_dir"`
+	BinaryPath         string                     `json:"binary_path,omitempty" yaml:"binary_path,omitempty" mapstructure:"binary_path"`
+	AllowedTools       []string                   `json:"allowed_tools" yaml:"allowed_tools" mapstructure:"allowed_tools"`
+	DisallowedTools    []string                   `json:"disallowed_tools" yaml:"disallowed_tools" mapstructure:"disallowed_tools"`
+	Tools              []string                   `json:"tools" yaml:"tools" mapstructure:"tools"`
+	MCPServers         map[string]MCPServerConfig `json:"mcp_servers" yaml:"mcp_servers" mapstructure:"mcp_servers"`
+	StrictMCPConfig    bool                       `json:"strict_mcp_config" yaml:"strict_mcp_config" mapstructure:"strict_mcp_config"`
+	Env                map[string]string          `json:"env" yaml:"env" mapstructure:"env"`
+	AddDirs            []string                   `json:"add_dirs" yaml:"add_dirs" mapstructure:"add_dirs"`
+	Session            *SessionMetadata           `json:"session,omitempty" yaml:"session,omitempty" mapstructure:"session"`
+	ResumeSession      bool                       `json:"resume_session,omitempty" yaml:"resume_session,omitempty" mapstructure:"resume_session"`
+	ReasoningEffort    string                     `json:"reasoning_effort" yaml:"reasoning_effort" mapstructure:"reasoning_effort"`
+	WebSearchMode      string                     `json:"web_search_mode" yaml:"web_search_mode" mapstructure:"web_search_mode"`
+	Runtime            RuntimeConfig              `json:"runtime,omitempty" yaml:"runtime,omitempty" mapstructure:"runtime"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -93,6 +96,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Timeout < 0 {
 		return fmt.Errorf("timeout must be >= 0, got %v", c.Timeout)
+	}
+	if err := ValidateRuntimeConfig(c.Provider, c.Runtime); err != nil {
+		return err
 	}
 	return nil
 }

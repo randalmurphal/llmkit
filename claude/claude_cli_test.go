@@ -63,6 +63,16 @@ func TestClaudeCLI_BuildArgs(t *testing.T) {
 			contains: []string{"--model"},
 		},
 		{
+			name:   "with effort from client",
+			client: claude.NewClaudeCLI(claude.WithEffort("high")),
+			req: claude.CompletionRequest{
+				Messages: []claude.Message{
+					{Role: claude.RoleUser, Content: "Test"},
+				},
+			},
+			contains: []string{"--effort", "high"},
+		},
+		{
 			name:   "max tokens ignored (CLI doesn't support it)",
 			client: claude.NewClaudeCLI(),
 			req: claude.CompletionRequest{
@@ -193,6 +203,9 @@ func TestClaudeCLI_NewOptions(t *testing.T) {
 		assert.NotNil(t, client)
 
 		client = claude.NewClaudeCLI(claude.WithFallbackModel("haiku"))
+		assert.NotNil(t, client)
+
+		client = claude.NewClaudeCLI(claude.WithEffort("high"))
 		assert.NotNil(t, client)
 	})
 

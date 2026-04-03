@@ -101,18 +101,18 @@ type SessionMetadata struct {
 }
 
 type Response struct {
-	Content      string         `json:"content"`
-	ToolCalls    []ToolCall     `json:"tool_calls,omitempty"`
-	ToolResults  []ToolResult   `json:"tool_results,omitempty"`
-	Usage        TokenUsage     `json:"usage"`
-	Model        string         `json:"model"`
-	FinishReason string         `json:"finish_reason"`
-	Duration     time.Duration  `json:"duration"`
-	SessionID    string         `json:"session_id,omitempty"`
+	Content      string           `json:"content"`
+	ToolCalls    []ToolCall       `json:"tool_calls,omitempty"`
+	ToolResults  []ToolResult     `json:"tool_results,omitempty"`
+	Usage        TokenUsage       `json:"usage"`
+	Model        string           `json:"model"`
+	FinishReason string           `json:"finish_reason"`
+	Duration     time.Duration    `json:"duration"`
+	SessionID    string           `json:"session_id,omitempty"`
 	Session      *SessionMetadata `json:"session,omitempty"`
-	CostUSD      float64        `json:"cost_usd,omitempty"`
-	NumTurns     int            `json:"num_turns,omitempty"`
-	Metadata     map[string]any `json:"metadata,omitempty"`
+	CostUSD      float64          `json:"cost_usd,omitempty"`
+	NumTurns     int              `json:"num_turns,omitempty"`
+	Metadata     map[string]any   `json:"metadata,omitempty"`
 }
 
 type ToolCall struct {
@@ -157,6 +157,8 @@ type StreamChunk struct {
 	ToolCalls    []ToolCall       `json:"tool_calls,omitempty"`
 	ToolResults  []ToolResult     `json:"tool_results,omitempty"`
 	Usage        *TokenUsage      `json:"usage,omitempty"`
+	CostUSD      float64          `json:"cost_usd,omitempty"`
+	NumTurns     int              `json:"num_turns,omitempty"`
 	Done         bool             `json:"done"`
 	Metadata     map[string]any   `json:"metadata,omitempty"`
 	Error        error            `json:"-"`

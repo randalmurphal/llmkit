@@ -94,6 +94,7 @@ func TestConfig_LoadFromEnv(t *testing.T) {
 	originalEnv := map[string]string{
 		"CLAUDE_MODEL":                  os.Getenv("CLAUDE_MODEL"),
 		"CLAUDE_FALLBACK_MODEL":         os.Getenv("CLAUDE_FALLBACK_MODEL"),
+		"CLAUDE_EFFORT":                 os.Getenv("CLAUDE_EFFORT"),
 		"CLAUDE_SYSTEM_PROMPT":          os.Getenv("CLAUDE_SYSTEM_PROMPT"),
 		"CLAUDE_APPEND_SYSTEM_PROMPT":   os.Getenv("CLAUDE_APPEND_SYSTEM_PROMPT"),
 		"CLAUDE_MAX_TURNS":              os.Getenv("CLAUDE_MAX_TURNS"),
@@ -127,6 +128,7 @@ func TestConfig_LoadFromEnv(t *testing.T) {
 	// Set test values
 	os.Setenv("CLAUDE_MODEL", "claude-opus-4-5-20251101")
 	os.Setenv("CLAUDE_FALLBACK_MODEL", "claude-haiku-3-5-20250626")
+	os.Setenv("CLAUDE_EFFORT", "high")
 	os.Setenv("CLAUDE_SYSTEM_PROMPT", "Test prompt")
 	os.Setenv("CLAUDE_APPEND_SYSTEM_PROMPT", "Appended text")
 	os.Setenv("CLAUDE_MAX_TURNS", "25")
@@ -150,6 +152,9 @@ func TestConfig_LoadFromEnv(t *testing.T) {
 	}
 	if cfg.FallbackModel != "claude-haiku-3-5-20250626" {
 		t.Errorf("FallbackModel = %q, want %q", cfg.FallbackModel, "claude-haiku-3-5-20250626")
+	}
+	if cfg.Effort != "high" {
+		t.Errorf("Effort = %q, want %q", cfg.Effort, "high")
 	}
 	if cfg.SystemPrompt != "Test prompt" {
 		t.Errorf("SystemPrompt = %q, want %q", cfg.SystemPrompt, "Test prompt")
@@ -227,6 +232,7 @@ func TestConfig_ToOptions(t *testing.T) {
 	cfg := Config{
 		Model:                      "claude-opus-4-5-20251101",
 		FallbackModel:              "claude-sonnet-4-20250514",
+		Effort:                     "high",
 		SystemPrompt:               "Test system prompt",
 		AppendSystemPrompt:         "Appended",
 		MaxTurns:                   15,
